@@ -10,6 +10,9 @@ in PDP-11 assembly.
 
 **Live: https://pdp11-arkanoid.azurewebsites.net/**
 
+Controls: ← → move the paddle, Space (or ↑) launches the ball.
+Pause the emulator to inspect the CPU registers mid-game.
+
 ## The experiment
 
 This project is an experiment in AI-assisted development: the entire thing —
