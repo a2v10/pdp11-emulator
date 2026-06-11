@@ -58,7 +58,7 @@ stages:
                 - task: AzureWebApp@1
                   displayName: Deploy static site
                   inputs:
-                    azureSubscription: Nova_Era_Resources
+                    azureSubscription: $(azureSubscription)
                     appType: webApp
-                    appName: pdp11-arkanoid
+                    appName: $(webAppName)
                     package: $(Pipeline.Workspace)/site
