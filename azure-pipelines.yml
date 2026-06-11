@@ -21,7 +21,14 @@ stages:
           vmImage: ubuntu-latest
         steps:
           - task: UseNode@1
+            inputs:
+              version: $(nodeVersion)          
             displayName: Use Node $(nodeVersion)
+
+          - script: |
+              node --version
+              npm --version
+            displayName: Check Node
 
           - script: npm install
             displayName: npm install
