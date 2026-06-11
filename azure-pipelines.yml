@@ -11,9 +11,6 @@ trigger:
 
 variables:
   nodeVersion: '22.x'
-  # fill these two in:
-  azureSubscription: 'azure-prod'      # service connection name
-  webAppName: 'pdp11-arkanoid'         # Web App resource name
 
 stages:
   - stage: Build
@@ -56,7 +53,7 @@ stages:
                 - task: AzureWebApp@1
                   displayName: Deploy static site
                   inputs:
-                    azureSubscription: $(azureSubscription)
+                    azureSubscription: Nova_Era_Resources
                     appType: webApp
-                    appName: $(webAppName)
+                    appName: pdp11-arkanoid
                     package: $(Pipeline.Workspace)/site
