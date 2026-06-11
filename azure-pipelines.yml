@@ -7,7 +7,7 @@
 trigger:
   branches:
     include:
-      - main
+      - master
 
 variables:
   nodeVersion: '22.x'
@@ -43,7 +43,7 @@ stages:
   - stage: Deploy
     displayName: Deploy
     dependsOn: Build
-    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/master'))
     jobs:
       - deployment: DeployWeb
         displayName: Azure Web App
