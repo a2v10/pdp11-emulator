@@ -1,72 +1,85 @@
 # PDP-11 / Arkanoid
 
-Эмулятор PDP-11 на TypeScript: ядро без зависимостей, ассемблер (подмножество MACRO-11),
-браузерная оболочка на React и Арканоид, написанный на ассемблере PDP-11.
+A PDP-11 emulator in TypeScript: a dependency-free core, an assembler
+(MACRO-11 subset), a React shell for the browser — and Arkanoid, written
+in PDP-11 assembly.
 
-## Карта памяти (адреса восьмеричные)
+**Live: https://pdp11-arkanoid.azurewebsites.net/**
 
-| Диапазон        | Размер | Назначение                                      |
-|-----------------|--------|-------------------------------------------------|
-| 000000–000377   | 256 B  | Векторы прерываний и трапов                     |
-| 000400–057777   | ~24 KB | Код, данные, стек                               |
-| 060000–157777   | 32 KB  | Фреймбуфер 512×512, 1 бит/пиксель, 64 байта/строка |
-| 160000–177777   | 8 KB   | Страница ввода-вывода                           |
+## Memory map (addresses in octal)
 
-Пиксель (x, y): байт `060000 + (y << 6) + (x >> 3)`, бит `x & 7`.
+| Range           | Size   | Purpose                                          |
+|-----------------|--------|--------------------------------------------------|
+| 000000–000377   | 256 B  | Interrupt and trap vectors                       |
+| 000400–057777   | ~24 KB | Code, data, stack                                |
+| 060000–157777   | 32 KB  | Framebuffer 512×512, 1 bpp, 64 bytes per row     |
+| 160000–177777   | 8 KB   | I/O page                                         |
 
-### Регистры устройств
+Pixel (x, y): byte `060000 + (y << 6) + (x >> 3)`, bit `x & 7`.
 
-| Адрес  | Устройство | Описание |
-|--------|-----------|----------|
-| 177546 | KW11 line clock | бит 6 — разрешение прерывания, бит 7 — флаг тика. Тикает 60 Гц, прерывание через вектор 100, приоритет 6. Это «vsync» игры. |
-| 177570 | Джойстик | только чтение: бит 0 — влево, бит 1 — вправо, бит 2 — fire. Маска *удерживаемых* кнопок. |
+### Device registers
 
-## Модули
+| Address | Device | Description |
+|---------|--------|-------------|
+| 177546  | KW11 line clock | bit 6 — interrupt enable, bit 7 — tick flag. Ticks at 60 Hz, interrupts through vector 100 at priority 6. This is the game's "vsync". |
+| 177570  | Joystick | read-only: bit 0 — left, bit 1 — right, bit 2 — fire. A mask of the *currently held* buttons. |
 
-- `src/core/` — ядро, чистый TS, не знает про браузер:
-  - `memory.ts` — 64 KB, один `ArrayBuffer` с byte- и word-видами;
-  - `bus.ts` — маршрутизация адресов, диспетчеризация I/O-страницы, хук `onAccess`;
-  - `cpu.ts` — регистры R0–R7, PSW, 8 режимов адресации, step(), трапы и прерывания;
-  - `instructions.ts` — две сущности: `decode()` — **каскад вложенных switch по
-    восьмеричным полям слова**, программный аналог комбинационной логики настоящего
-    декодера (структура повторяет карту опкодов из Processor Handbook); и `DEFS` —
-    «карточка программиста»: данные для ассемблера, дизассемблера и UI. Кросс-тест
-    сверяет их на всех 65536 словах;
-  - `machine.ts` — собранная машина + снапшоты состояния (перемотка/replay);
-  - `devices/` — KW11, джойстик.
-- `src/asm/` — двухпроходный ассемблер, подмножество MACRO-11: метки, `СИМВОЛ = выраж`,
-  `. = адрес`, `.WORD/.BYTE/.ASCII/.ASCIZ/.BLKW/.BLKB/.EVEN/.END`, выражения
-  (octal по умолчанию, `64.` — десятичное, `'A` — символ, вычисление слева направо
-  без приоритетов — как в настоящем MACRO-11), все режимы адресации. На выходе:
-  образ + таблица символов + карта «адрес ↔ строка исходника» для отладчика.
-- `src/web/` — React-оболочка: экран на canvas (фреймбуфер → ImageData раз в кадр),
-  клавиатура → джойстик, Run/Pause/Step/Frame, панель регистров, редактор ассемблера.
-  `npm run dev` → http://localhost:5173.
-- `programs/arkanoid.s` — Арканоид: 6×15 кирпичей, мяч 4×4 c попиксельным движением
-  (таблицы битовых масок), углы отскока от места попадания в ракетку, счёт со шрифтом
-  5×7, жизни. `programs/demo.s` — простая демка с мячом.
+## Modules
 
-## Слоты для учебного режима
+- `src/core/` — the emulator core, pure TS, knows nothing about the browser:
+  - `memory.ts` — 64 KB, one `ArrayBuffer` with byte and word views;
+  - `bus.ts` — address routing, I/O page dispatch, an `onAccess` hook;
+  - `cpu.ts` — registers R0–R7, PSW, all 8 addressing modes, step(), traps
+    and interrupts;
+  - `instructions.ts` — two cooperating forms of the instruction set:
+    `decode()` — **a cascade of nested switches over the octal fields of the
+    instruction word**, the software analog of the combinational decode
+    network in the real processor (the structure mirrors the opcode map in
+    the PDP-11 Processor Handbook); and `DEFS` — the "programmer's reference
+    card": data that feeds the assembler, the disassembler and the UI.
+    A test cross-checks the two on all 65536 opcode words;
+  - `machine.ts` — the assembled machine + state snapshots (rewind/replay);
+  - `devices/` — KW11, joystick.
+- `src/asm/` — a two-pass assembler, MACRO-11 subset: labels, `SYM = expr`,
+  `. = addr`, `.WORD/.BYTE/.ASCII/.ASCIZ/.BLKW/.BLKB/.EVEN/.END`, expressions
+  (octal by default, `64.` for decimal, `'A` for a character, left-to-right
+  evaluation with no operator precedence — just like the real MACRO-11), all
+  addressing modes. Output: an image + a symbol table + an address ↔ source
+  line map for the debugger.
+- `src/web/` — the React shell: a canvas screen (framebuffer → ImageData once
+  per frame), keyboard → joystick, Run/Pause/Step/Frame, a register panel,
+  an assembly editor. `npm run dev` → http://localhost:5173.
+- `programs/arkanoid.s` — Arkanoid: a 6×15 brick field, a 4×4 ball with
+  per-pixel movement (bit mask tables), bounce angle controlled by where the
+  ball hits the paddle, a score rendered in a 5×7 digit font, lives.
+  `programs/demo.s` — a simple bouncing-ball demo.
 
-Заложены и протестированы, UI подключается без переделки ядра:
+## Slots for the future "learning mode"
 
-- `cpu.tracer` — событие на каждую исполненную инструкцию (PC, опкод, имя, PSW);
-- `bus.onAccess` — наблюдение каждого обращения к памяти/устройствам;
-- `Machine.snapshot()/restore()` — полное состояние машины; ядро детерминировано,
-  значит «начальное состояние + входы по кадрам» = точный повтор и перемотка;
-- `InstrDef.units` — какие блоки процессора задействует инструкция (для схемы);
-- `cpu.cycles` — приблизительный счётчик тактов.
+Designed in and covered by tests; a UI can plug in without touching the core:
 
-## Аутентичность и упрощения
+- `cpu.tracer` — an event per executed instruction (PC, opcode, name, PSW);
+- `bus.onAccess` — observes every memory/device access;
+- `Machine.snapshot()/restore()` — the full machine state; the core is
+  deterministic, so "initial state + per-frame inputs" gives exact replay
+  and rewind;
+- `InstrDef.units` — which functional units an instruction engages (for a
+  future animated CPU schematic);
+- `cpu.cycles` — an approximate cycle counter.
 
-Реализован базовый набор инструкций (без EIS, FPU и MMU — на 512-пиксельной строке
-адресная арифметика обходится сдвигами). Честно сделаны: порядок байт, autoincrement
-на 1/2, sign-extend у MOVB в регистр, трап по нечётному адресу (вектор 4), bus timeout
-на пустых адресах I/O, приоритеты прерываний, WAIT, RTI/RTT, EMT/TRAP, двойной отказ.
+## Authenticity and simplifications
 
-## Команды
+The base instruction set is implemented (no EIS, FPU or MMU — with a
+512-pixel row all address arithmetic reduces to shifts). Faithfully done:
+byte order, autoincrement by 1/2, MOVB sign-extension into registers, the
+odd-address trap (vector 4), bus timeout on unmapped I/O addresses,
+interrupt priorities, WAIT, RTI/RTT, EMT/TRAP, double-fault handling.
+
+## Commands
 
 ```
-npm test           # vitest, тесты ядра
+npm run dev        # Vite dev server
+npm run build      # production build
+npm test           # vitest, core/asm/game tests
 npm run typecheck  # tsc --noEmit
 ```
