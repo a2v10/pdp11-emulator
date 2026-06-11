@@ -59,7 +59,6 @@ stages:
                   displayName: Deploy static site
                   inputs:
                     azureSubscription: Nova_Era_Resources
-                    resourceGroupName: NovaEra_Prod
                     appType: webApp
                     appName: pdp11-arkanoid
                     package: $(Pipeline.Workspace)/site
