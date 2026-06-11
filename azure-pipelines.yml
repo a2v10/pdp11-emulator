@@ -20,7 +20,7 @@ stages:
         pool:
           vmImage: ubuntu-latest
         steps:
-          - task: NodeTool@0
+          - task: NodeTool@1
             displayName: Use Node $(nodeVersion)
             inputs:
               versionSpec: $(nodeVersion)
