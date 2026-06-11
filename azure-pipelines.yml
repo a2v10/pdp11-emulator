@@ -54,19 +54,12 @@ stages:
           runOnce:
             deploy:
               steps:
-                - task: AzureCLI@2
-                  inputs:
-                    azureSubscription: Nova_Era_Resources
-                    scriptType: bash
-                    scriptLocation: inlineScript
-                    inlineScript: |
-                      az webapp show
-
                 # the "site" artifact is auto-downloaded to $(Pipeline.Workspace)/site
                 - task: AzureWebApp@1
                   displayName: Deploy static site
                   inputs:
                     azureSubscription: Nova_Era_Resources
+                    resourceGroupName: NovaEra_Prod
                     appType: webApp
                     appName: pdp11-arkanoid
                     package: $(Pipeline.Workspace)/site
