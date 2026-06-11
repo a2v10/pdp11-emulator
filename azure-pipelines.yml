@@ -1,0 +1,63 @@
+# PDP-11 / Arkanoid — build and deploy in one multi-stage pipeline.
+#
+# Build: vite build on a hosted agent, dist goes out as the "site" artifact.
+# Deploy: the artifact lands on an Azure Web App (Linux). pm2 serves the
+# static files; on a Windows Web App drop the startUpCommand line.
+
+trigger:
+  branches:
+    include:
+      - main
+
+variables:
+  nodeVersion: '22.x'
+  # fill these two in:
+  azureSubscription: 'azure-prod'      # service connection name
+  webAppName: 'pdp11-arkanoid'         # Web App resource name
+
+stages:
+  - stage: Build
+    displayName: Build
+    jobs:
+      - job: Build
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - task: NodeTool@0
+            displayName: Use Node $(nodeVersion)
+            inputs:
+              versionSpec: $(nodeVersion)
+
+          - script: npm ci
+            displayName: npm ci
+
+          - script: npm run build
+            displayName: Vite build
+
+          - publish: dist
+            artifact: site
+            displayName: Publish dist
+
+  - stage: Deploy
+    displayName: Deploy
+    dependsOn: Build
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    jobs:
+      - deployment: DeployWeb
+        displayName: Azure Web App
+        pool:
+          vmImage: ubuntu-latest
+        environment: pdp11-prod
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                # the "site" artifact is auto-downloaded to $(Pipeline.Workspace)/site
+                - task: AzureWebApp@1
+                  displayName: Deploy static site
+                  inputs:
+                    azureSubscription: $(azureSubscription)
+                    appType: webAppLinux
+                    appName: $(webAppName)
+                    package: $(Pipeline.Workspace)/site
+                    startUpCommand: 'pm2 serve /home/site/wwwroot --no-daemon --spa'

@@ -1,0 +1,96 @@
+import { Bus } from './bus';
+import { CPU } from './cpu';
+import { Memory } from './memory';
+import { KW11 } from './devices/kw11';
+import { Joystick } from './devices/joystick';
+import { CYCLES_PER_FRAME } from './constants';
+
+export interface Snapshot {
+  mem: Uint8Array;
+  regs: number[];
+  psw: number;
+  halted: boolean;
+  waiting: boolean;
+  cycles: number;
+  irqs: { vector: number; priority: number }[];
+  kw11: number;
+  joystick: number;
+}
+
+/** A fully wired machine: memory + bus + CPU + standard devices. */
+export class Machine {
+  readonly memory = new Memory();
+  readonly bus = new Bus(this.memory);
+  readonly cpu = new CPU(this.bus);
+  readonly kw11: KW11;
+  readonly joystick = new Joystick();
+
+  constructor() {
+    this.kw11 = new KW11((vector, priority) => this.cpu.requestInterrupt(vector, priority));
+    this.bus.register(this.kw11);
+    this.bus.register(this.joystick);
+  }
+
+  reset(): void {
+    this.cpu.reset();
+    this.bus.resetDevices();
+  }
+
+  /** Load a program image directly into RAM (bypasses the bus). */
+  loadWords(addr: number, words: readonly number[]): void {
+    for (let i = 0; i < words.length; i++) {
+      this.memory.words[(addr >> 1) + i] = words[i];
+    }
+  }
+
+  /** Load an assembled image (structurally matches AsmResult). */
+  loadImage(img: { image: Uint8Array; regions: { start: number; end: number }[] }): void {
+    for (const r of img.regions) {
+      this.memory.bytes.set(img.image.subarray(r.start, r.end), r.start);
+    }
+  }
+
+  /** Run until the cycle budget is spent or the CPU halts. Returns cycles used. */
+  run(maxCycles: number): number {
+    const cpu = this.cpu;
+    let used = 0;
+    while (used < maxCycles && !cpu.halted) {
+      used += cpu.step();
+    }
+    return used;
+  }
+
+  /** One display frame: clock tick + a frame's worth of CPU time. */
+  runFrame(): number {
+    this.kw11.tick();
+    return this.run(CYCLES_PER_FRAME);
+  }
+
+  // ---- snapshot slot: the whole machine is trivially serializable ----
+
+  snapshot(): Snapshot {
+    return {
+      mem: new Uint8Array(this.memory.bytes),
+      regs: Array.from(this.cpu.regs),
+      psw: this.cpu.psw,
+      halted: this.cpu.halted,
+      waiting: this.cpu.waiting,
+      cycles: this.cpu.cycles,
+      irqs: this.cpu.snapshotIrqs(),
+      kw11: this.kw11.lks,
+      joystick: this.joystick.state,
+    };
+  }
+
+  restore(s: Snapshot): void {
+    this.memory.bytes.set(s.mem);
+    this.cpu.regs.set(s.regs);
+    this.cpu.psw = s.psw;
+    this.cpu.halted = s.halted;
+    this.cpu.waiting = s.waiting;
+    this.cpu.cycles = s.cycles;
+    this.cpu.restoreIrqs(s.irqs);
+    this.kw11.lks = s.kw11;
+    this.joystick.state = s.joystick;
+  }
+}
