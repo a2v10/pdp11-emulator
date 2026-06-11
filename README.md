@@ -5,7 +5,7 @@ A PDP-11 emulator in TypeScript: a dependency-free core, an assembler
 in PDP-11 assembly.
 
 
-![Arkanoid running on the emulator](docs/screenshot.png)
+![Arkanoid running on the emulator](docs/Screenshot.png)
 
 
 **Live: https://pdp11-arkanoid.azurewebsites.net/**
