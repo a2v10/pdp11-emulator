@@ -4,7 +4,24 @@ A PDP-11 emulator in TypeScript: a dependency-free core, an assembler
 (MACRO-11 subset), a React shell for the browser — and Arkanoid, written
 in PDP-11 assembly.
 
+
+![Arkanoid running on the emulator](docs/screenshot.png)
+
+
 **Live: https://pdp11-arkanoid.azurewebsites.net/**
+
+## The experiment
+
+This project is an experiment in AI-assisted development: the entire thing —
+the emulator core, the assembler, the React shell, the Arkanoid game in
+PDP-11 assembly, the tests and the deployment pipeline — was written in a
+single conversation with [Claude Code](https://claude.com/claude-code),
+guided by an engineer with 40+ years of experience who remembers the real
+PDP-11 era. The human set the architecture straight more than once (no 64K
+decode lookup table in 1975 — the decoder is a switch cascade mirroring the
+combinational logic of the real machine); the AI typed fast and kept the
+test suite green. Total time from "let's sketch the modules" to the deployed
+public site: one day.
 
 ## Memory map (addresses in octal)
 
