@@ -60,8 +60,7 @@ stages:
                     scriptType: bash
                     scriptLocation: inlineScript
                     inlineScript: |
-                      az account show
-                      az webapp show --name pdp11-arkanoid              
+                      az webapp show
 
                 # the "site" artifact is auto-downloaded to $(Pipeline.Workspace)/site
                 - task: AzureWebApp@1
