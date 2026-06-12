@@ -16,6 +16,7 @@
 FB      = 60000
 LKS     = 177546            ; KW11 line clock: the 60 Hz game timer
 JOY     = 177570            ; bit 0 - left, bit 1 - right, bit 2 - fire
+SPK     = 177544            ; speaker: bit 0 is the cone, toggle it for sound
 
         . = 100             ; clock interrupt vector
         .WORD VSYNC, 340
@@ -61,6 +62,7 @@ VF1:    TST PREVF
         TST STUCK
         BEQ VF2
         CLR STUCK           ; serve!
+        JSR PC, SSERVE
         MOV #-2, BDY
         MOV #2, BDX
         BIT #1, FCNT        ; serve left or right, depending on the frame
@@ -70,6 +72,7 @@ VF2:
         TST STUCK
         BEQ PHYS
         JSR PC, BALPAD      ; the ball rides on the paddle
+        JSR PC, MUSIC       ; a serenade while we wait
         JMP DRAW            ; too far for a branch
 
         ; --- physics, X axis ---
@@ -80,6 +83,7 @@ PHYS:   MOV BALLX, R0
         CMP R0, #764        ; 500.
         BLE XBRK
 XFLIP:  NEG BDX             ; wall: bounce, no move this frame
+        JSR PC, SWALL
         BR XDONE
 XBRK:   MOV R0, R4          ; R4 = new x (CHKBRK preserves R4)
         TST BDX
@@ -100,6 +104,7 @@ XDONE:
         CMP R1, #22         ; 18.: the top wall
         BGE YBRK
         NEG BDY
+        JSR PC, SWALL
         BR YDONE
 YBRK:   CMP R1, #770        ; 504.: below the paddle - ball lost
         BLE YB2
@@ -136,6 +141,7 @@ YPAD:   ; --- paddle bounce: moving down and new y in [492., 496.] ---
         CMP BALLX, R3
         BGT YMOVE           ; ball is right of the paddle
         NEG BDY             ; bounce; the hit position picks the angle
+        JSR PC, SPADL       ; (preserves R2 - the paddle x is still live)
         MOV BALLX, R3
         ADD #2, R3
         SUB R2, R3          ; 0..47 across the paddle
@@ -178,7 +184,9 @@ BALPAD: MOV PADB, R0
         RTS PC
 
 ; ---- LOST: a life is gone ----
-LOST:   DEC LIVES
+LOST:   JSR PC, SLOST       ; the dying buzz (the game freezes for it,
+                            ; six frames - the Spectrum did the same)
+        DEC LIVES
         JSR PC, DRWLIV
         TST LIVES
         BGT LO1
@@ -224,10 +232,71 @@ CHKBRK: CMP R1, #100        ; above the brick band? (64.)
         MOV R2, R1
         JSR PC, ERSBRK
         JSR PC, ADD10
+        JSR PC, SBRICK
         MOV #1, R0
         RTS PC
 CBNO:   CLR R0
         RTS PC
+
+; ===================== sound =====================
+; The speaker is one bit: the program toggles the cone and the toggle
+; rate is the pitch - Spectrum-style, there is no tone generator.
+; One half-period costs 3*R0 + 10 cycles on our ~1 MHz machine.
+
+; ---- TONE: square wave. R0 = delay count (pitch), R1 = number of
+;      half-periods (length). Clobbers R0-R3. ----
+TONE:   CLR R3
+TON1:   COM R3
+        MOV R3, @#SPK
+        MOV R0, R2
+TON2:   SOB R2, TON2
+        SOB R1, TON1
+        CLR @#SPK
+        RTS PC
+
+; ---- effect presets: pitch and length for TONE ----
+SWALL:  MOV #243, R0        ; 1 kHz, 2 ms: the wall
+        MOV #4, R1
+        BR TONE
+SBRICK: MOV #145, R0        ; 1.6 kHz, 3 ms: a brick dies
+        MOV #12, R1
+        BR TONE
+SPADL:  MOV R2, -(SP)       ; the caller's R2 is live
+        MOV #353, R0        ; 700 Hz, 3 ms: the paddle
+        MOV #4, R1
+        JSR PC, TONE
+        MOV (SP)+, R2
+        RTS PC
+SSERVE: MOV #210, R0        ; 1.2 kHz, 5 ms: serve
+        MOV #14, R1
+        BR TONE
+SLOST:  MOV #2124, R0       ; 150 Hz, 100 ms: the ball is gone
+        MOV #36, R1
+        BR TONE
+
+; ---- MUSIC: one frame's slice of the tune, called while the ball
+;      waits on the paddle. A note is (delay count, half-periods per
+;      frame, frames); delay 0 is a rest, 177777 loops the tune.
+;      The last two frames of a note are silent - that gap is what
+;      separates repeated notes. Clobbers R0-R3, R5. ----
+MUSIC:  TST MTIME
+        BGT MUS1            ; the current note still sounds
+        MOV MNOTE, R5       ; it ended: advance
+        ADD #6, R5
+        TST (R5)
+        BGE MUS0
+        MOV #MTUNE, R5      ; da capo
+MUS0:   MOV R5, MNOTE
+        MOV 4(R5), MTIME
+MUS1:   DEC MTIME
+        MOV MNOTE, R5
+        MOV (R5), R0
+        BEQ MUS9            ; a rest
+        CMP MTIME, #2
+        BLT MUS9            ; the gap between notes
+        MOV 2(R5), R1
+        JSR PC, TONE
+MUS9:   RTS PC
 
 ; ---- BRKADR: R0 = row, R1 = col -> R2 = brick top-left address ----
 BRKADR: MOV R0, R2
@@ -436,11 +505,38 @@ LIVES:  .WORD 3
 BRKCNT: .WORD 132           ; 90.
 PREVF:  .WORD 0
 FCNT:   .WORD 0
+MNOTE:  .WORD MTUNE         ; the note now playing
+MTIME:  .WORD 24            ; frames it has left (the first note's length)
 SCORE:  .BYTE 0, 0, 0, 0    ; four decimal digits
 
 ; masks of a 4-pixel run at offset x&7 inside a byte pair
 MASKL:  .BYTE 17, 36, 74, 170, 360, 340, 300, 200
 MASKR:  .BYTE 0, 0, 0, 0, 0, 1, 3, 7
+
+; Korobeiniki - what else do you play on a PDP-11? Tetris was written
+; on an Elektronika-60, a Soviet PDP-11 clone. A note is (delay count,
+; half-periods per frame, frames): quarter = 24, eighth = 12 frames.
+MTUNE:  .WORD 372, 17, 24   ; E5
+        .WORD 516, 13, 12   ; B4
+        .WORD 473, 14, 12   ; C5
+        .WORD 431, 16, 24   ; D5
+        .WORD 473, 14, 12   ; C5
+        .WORD 516, 13, 12   ; B4
+        .WORD 567, 12, 24   ; A4
+        .WORD 567, 12, 12   ; A4
+        .WORD 473, 14, 12   ; C5
+        .WORD 372, 17, 24   ; E5
+        .WORD 431, 16, 12   ; D5
+        .WORD 473, 14, 12   ; C5
+        .WORD 516, 13, 36   ; B4, dotted
+        .WORD 473, 14, 12   ; C5
+        .WORD 431, 16, 24   ; D5
+        .WORD 372, 17, 24   ; E5
+        .WORD 473, 14, 24   ; C5
+        .WORD 567, 12, 24   ; A4
+        .WORD 567, 12, 24   ; A4
+        .WORD 0, 0, 36      ; a breath before da capo
+        .WORD 177777        ; end of tune
 
 ; 5x7 digit font, bit 0 = leftmost pixel, 8 bytes per glyph
 FONT:   .BYTE 16, 21, 21, 21, 21, 21, 16, 0     ; 0

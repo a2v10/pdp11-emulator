@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ORG, mk, runToHalt, steps } from './helpers';
-import { JOY_FIRE, JOY_LEFT, JOY_REG, KW11_LKS } from '../src/core/constants';
+import { JOY_FIRE, JOY_LEFT, JOY_REG, KW11_LKS, SPK_REG } from '../src/core/constants';
 
 describe('KW11 line clock', () => {
   it('tick sets the monitor bit', () => {
@@ -54,6 +54,35 @@ describe('joystick', () => {
     const m = mk([]);
     m.bus.writeWord(JOY_REG, 0o777);
     expect(m.bus.readWord(JOY_REG)).toBe(0);
+  });
+});
+
+describe('speaker', () => {
+  it('program toggles record cycle-stamped transitions', () => {
+    // MOV #1,@#SPK; CLR @#SPK; HALT
+    const m = mk([0o012737, 1, SPK_REG, 0o005037, SPK_REG, 0]);
+    runToHalt(m);
+    expect(m.speaker.events.length).toBe(4); // two (cycle, level) pairs
+    const [t0, l0, t1, l1] = m.speaker.events;
+    expect(l0).toBe(1);
+    expect(l1).toBe(0);
+    expect(t1).toBeGreaterThan(t0);
+  });
+
+  it('only bit 0 matters; same-level writes are not recorded', () => {
+    const m = mk([]);
+    m.bus.writeWord(SPK_REG, 1);
+    m.bus.writeWord(SPK_REG, 0o177777); // bit 0 unchanged
+    expect(m.speaker.events.length).toBe(2);
+    expect(m.bus.readWord(SPK_REG)).toBe(1);
+  });
+
+  it('reset returns the cone to rest and clears the log', () => {
+    const m = mk([]);
+    m.bus.writeWord(SPK_REG, 1);
+    m.reset();
+    expect(m.speaker.level).toBe(0);
+    expect(m.speaker.events.length).toBe(0);
   });
 });
 

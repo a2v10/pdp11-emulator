@@ -40,6 +40,7 @@ export function App() {
 
   const assembleAndRun = (e: React.MouseEvent<HTMLButtonElement>): void => {
     unfocus(e);
+    emu.audio.unlock(); // autoplay policy: the context only starts inside a user gesture
     if (emu.load(source)) emu.setRunning(true);
   };
 
@@ -62,6 +63,7 @@ export function App() {
             <button
               onClick={(e) => {
                 unfocus(e);
+                if (!running) emu.audio.unlock();
                 emu.setRunning(!running);
               }}
               disabled={cpu.halted}
@@ -85,6 +87,15 @@ export function App() {
               disabled={running}
             >
               Frame
+            </button>
+            <button
+              onClick={(e) => {
+                unfocus(e);
+                emu.setMuted(!emu.muted);
+              }}
+              aria-label={emu.muted ? 'unmute' : 'mute'}
+            >
+              {emu.muted ? '🔇' : '🔊'}
             </button>
           </div>
           <div className="touch-controls">

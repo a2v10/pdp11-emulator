@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Machine } from '../core/machine';
 import { CYCLES_PER_FRAME, JOY_FIRE, JOY_LEFT, JOY_RIGHT } from '../core/constants';
 import { assemble, AsmError } from '../asm/assembler';
+import { SpeakerAudio } from './audio';
 
 export interface RegsView {
   regs: number[];
@@ -15,9 +16,15 @@ export interface RegsView {
  */
 export function useEmulator() {
   const [machine] = useState(() => new Machine());
+  const [audio] = useState(() => new SpeakerAudio());
   const [errors, setErrors] = useState<AsmError[]>([]);
   const [running, setRunning] = useState(false);
+  const [muted, setMuted] = useState(false);
   const [frame, setFrame] = useState(0);
+
+  useEffect(() => {
+    audio.muted = muted;
+  }, [audio, muted]);
 
   const bump = useCallback(() => setFrame((f) => f + 1), []);
 
@@ -44,16 +51,32 @@ export function useEmulator() {
   // and the panel would show the same PC forever.
   const midFrame = useRef<RegsView>({ regs: [0, 0, 0, 0, 0, 0, 0, 0], psw: 0 });
 
-  // emulation loop: one KW11 tick + a frame's worth of cycles per rAF
+  // emulation loop: paced by real time at 60 machine frames per second,
+  // whatever the display refresh rate (phones are often 90/120 Hz)
   useEffect(() => {
     if (!running) return;
-    let raf = requestAnimationFrame(function loop() {
-      machine.kw11.tick();
-      // run a random slice into the handler, peek at the registers, finish the frame
-      const used = machine.run(64 + ((Math.random() * 1024) | 0));
-      midFrame.current = { regs: Array.from(machine.cpu.regs), psw: machine.cpu.psw };
-      machine.run(CYCLES_PER_FRAME - used);
-      bump();
+    machine.speaker.events.length = 0; // stale transitions from stepping
+    let acc = 0;
+    let last = -1;
+    let raf = requestAnimationFrame(function loop(ts) {
+      if (last < 0) last = ts;
+      acc += ts - last;
+      last = ts;
+      if (acc > 100) acc = 100; // hidden tab: don't fast-forward
+      let ran = false;
+      while (acc >= 1000 / 60 && !machine.cpu.halted) {
+        acc -= 1000 / 60;
+        const startCycle = machine.cpu.cycles;
+        machine.kw11.tick();
+        // run a random slice into the handler, peek at the registers, finish the frame
+        const used = machine.run(64 + ((Math.random() * 1024) | 0));
+        midFrame.current = { regs: Array.from(machine.cpu.regs), psw: machine.cpu.psw };
+        machine.run(CYCLES_PER_FRAME - used);
+        audio.pushFrame(machine.speaker.events, startCycle);
+        machine.speaker.events.length = 0;
+        ran = true;
+      }
+      if (ran) bump();
       if (machine.cpu.halted) {
         setRunning(false);
         return;
@@ -61,7 +84,7 @@ export function useEmulator() {
       raf = requestAnimationFrame(loop);
     });
     return () => cancelAnimationFrame(raf);
-  }, [running, machine, bump]);
+  }, [running, machine, bump, audio]);
 
   // keyboard -> joystick
   useEffect(() => {
@@ -113,5 +136,5 @@ export function useEmulator() {
     ? midFrame.current
     : { regs: Array.from(machine.cpu.regs), psw: machine.cpu.psw };
 
-  return { machine, errors, running, setRunning, load, step, stepFrame, frame, view };
+  return { machine, audio, errors, running, setRunning, muted, setMuted, load, step, stepFrame, frame, view };
 }

@@ -27,6 +27,7 @@ export const VEC_CLOCK = 0o100; // KW11 line clock, priority 6
 // Device registers
 export const KW11_LKS = 0o177546; // line clock status: bit 6 = interrupt enable, bit 7 = monitor flag
 export const JOY_REG = 0o177570; // joystick state, read-only
+export const SPK_REG = 0o177544; // speaker: bit 0 is the cone position, Spectrum-style
 
 export const JOY_LEFT = 1;
 export const JOY_RIGHT = 2;

@@ -7,3 +7,4 @@ export * from './instructions';
 export * from './machine';
 export * from './devices/kw11';
 export * from './devices/joystick';
+export * from './devices/speaker';

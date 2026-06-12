@@ -41,8 +41,13 @@ Pixel (x, y): byte `060000 + (y << 6) + (x >> 3)`, bit `x & 7`.
 
 | Address | Device | Description |
 |---------|--------|-------------|
+| 177544  | Speaker | bit 0 is the cone position, Sinclair Spectrum style. There is no tone generator: the program toggles the bit and the toggle rate *is* the pitch. Music costs CPU cycles, like it did in 1982. |
 | 177546  | KW11 line clock | bit 6 — interrupt enable, bit 7 — tick flag. Ticks at 60 Hz, interrupts through vector 100 at priority 6. This is the game's "vsync". |
 | 177570  | Joystick | read-only: bit 0 — left, bit 1 — right, bit 2 — fire. A mask of the *currently held* buttons. |
+
+The game uses the speaker for bounce/brick effects and plays Korobeiniki
+while the ball waits on the paddle — the tune Tetris made famous, and
+Tetris was written on an Elektronika-60, a Soviet PDP-11 clone.
 
 ## Modules
 
@@ -59,7 +64,7 @@ Pixel (x, y): byte `060000 + (y << 6) + (x >> 3)`, bit `x & 7`.
     card": data that feeds the assembler, the disassembler and the UI.
     A test cross-checks the two on all 65536 opcode words;
   - `machine.ts` — the assembled machine + state snapshots (rewind/replay);
-  - `devices/` — KW11, joystick.
+  - `devices/` — KW11, joystick, one-bit speaker.
 - `src/asm/` — a two-pass assembler, MACRO-11 subset: labels, `SYM = expr`,
   `. = addr`, `.WORD/.BYTE/.ASCII/.ASCIZ/.BLKW/.BLKB/.EVEN/.END`, expressions
   (octal by default, `64.` for decimal, `'A` for a character, left-to-right

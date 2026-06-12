@@ -3,6 +3,7 @@ import { CPU } from './cpu';
 import { Memory } from './memory';
 import { KW11 } from './devices/kw11';
 import { Joystick } from './devices/joystick';
+import { Speaker } from './devices/speaker';
 import { CYCLES_PER_FRAME } from './constants';
 
 export interface Snapshot {
@@ -15,6 +16,7 @@ export interface Snapshot {
   irqs: { vector: number; priority: number }[];
   kw11: number;
   joystick: number;
+  speaker: number;
 }
 
 /** A fully wired machine: memory + bus + CPU + standard devices. */
@@ -24,11 +26,14 @@ export class Machine {
   readonly cpu = new CPU(this.bus);
   readonly kw11: KW11;
   readonly joystick = new Joystick();
+  readonly speaker: Speaker;
 
   constructor() {
     this.kw11 = new KW11((vector, priority) => this.cpu.requestInterrupt(vector, priority));
+    this.speaker = new Speaker(() => this.cpu.cycles);
     this.bus.register(this.kw11);
     this.bus.register(this.joystick);
+    this.bus.register(this.speaker);
   }
 
   reset(): void {
@@ -79,6 +84,7 @@ export class Machine {
       irqs: this.cpu.snapshotIrqs(),
       kw11: this.kw11.lks,
       joystick: this.joystick.state,
+      speaker: this.speaker.level,
     };
   }
 
@@ -92,5 +98,7 @@ export class Machine {
     this.cpu.restoreIrqs(s.irqs);
     this.kw11.lks = s.kw11;
     this.joystick.state = s.joystick;
+    this.speaker.level = s.speaker;
+    this.speaker.events.length = 0;
   }
 }
