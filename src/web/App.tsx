@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Screen } from './Screen';
 import { useEmulator } from './useEmulator';
+import { JOY_FIRE, JOY_LEFT, JOY_RIGHT } from '../core/constants';
 import demoSource from '../../programs/arkanoid.s?raw';
 
 const oct = (v: number): string => v.toString(8).padStart(6, '0');
@@ -16,6 +17,26 @@ export function App() {
 
   // drop focus so space/arrows go to the joystick, not the button
   const unfocus = (e: React.MouseEvent<HTMLButtonElement>): void => e.currentTarget.blur();
+
+  // touch joystick: hold a button — hold the bit, like a real stick
+  const hold = (mask: number) => ({
+    onPointerDown: (e: React.PointerEvent<HTMLButtonElement>): void => {
+      e.preventDefault();
+      machine.joystick.state |= mask;
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch {
+        // pointer may already be gone; the bit still clears on pointerup/cancel
+      }
+    },
+    onPointerUp: (): void => {
+      machine.joystick.state &= ~mask;
+    },
+    onPointerCancel: (): void => {
+      machine.joystick.state &= ~mask;
+    },
+    onContextMenu: (e: React.MouseEvent): void => e.preventDefault(), // long-press on Android
+  });
 
   const assembleAndRun = (e: React.MouseEvent<HTMLButtonElement>): void => {
     unfocus(e);
@@ -64,6 +85,17 @@ export function App() {
               disabled={running}
             >
               Frame
+            </button>
+          </div>
+          <div className="touch-controls">
+            <button {...hold(JOY_LEFT)} aria-label="left">
+              ◀
+            </button>
+            <button {...hold(JOY_FIRE)} aria-label="fire">
+              ●
+            </button>
+            <button {...hold(JOY_RIGHT)} aria-label="right">
+              ▶
             </button>
           </div>
           <div className="hint">← → — paddle · space / ↑ — launch</div>
