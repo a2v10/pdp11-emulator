@@ -48,6 +48,33 @@ h1 {
   color: #cf222e;
 }
 
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.tab {
+  font-size: 13px;
+  padding: 4px 14px;
+  border-radius: 5px 5px 0 0;
+  border: 1px solid #c8ccd2;
+  background: #e9ebee;
+  color: #57606a;
+  cursor: pointer;
+}
+
+.tab:hover:not(.active) {
+  background: #f0f1f3;
+}
+
+.tab.active {
+  background: #ffffff;
+  color: #1f2328;
+  border-bottom-color: #ffffff;
+  font-weight: 600;
+}
+
 main {
   display: flex;
   gap: 20px;

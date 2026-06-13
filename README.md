@@ -1,8 +1,9 @@
 # PDP-11 / Arkanoid
 
 A PDP-11 emulator in TypeScript: a dependency-free core, an assembler
-(MACRO-11 subset), a React shell for the browser — and Arkanoid, written
-in PDP-11 assembly.
+(MACRO-11 subset), a React shell for the browser — and two games written
+in PDP-11 assembly: Arkanoid and Tetris. Switch between them with the
+tabs above the screen.
 
 
 ![Arkanoid running on the emulator](docs/Screenshot.png)
@@ -10,8 +11,13 @@ in PDP-11 assembly.
 
 **Live: https://pdp11-arkanoid.azurewebsites.net/**
 
-Controls: ← → move the paddle, Space (or ↑) launches the ball.
-Pause the emulator to inspect the CPU registers mid-game.
+Controls — Arkanoid: ← → move the paddle, Space (or ↑) launches the ball.
+Tetris: ← → move, ↑ / Space rotate, ↓ soft-drop. On a phone an on-screen
+joystick appears. Pause the emulator to inspect the CPU registers mid-game.
+
+Tetris on a PDP-11 is no accident: the original was written by Alexey
+Pajitnov in 1984 on an Elektronika-60, a Soviet PDP-11 clone — so this
+runs it on (an emulation of) the machine it was born on.
 
 ## The experiment
 
@@ -43,7 +49,7 @@ Pixel (x, y): byte `060000 + (y << 6) + (x >> 3)`, bit `x & 7`.
 |---------|--------|-------------|
 | 177544  | Speaker | bit 0 is the cone position, Sinclair Spectrum style. There is no tone generator: the program toggles the bit and the toggle rate *is* the pitch. Music costs CPU cycles, like it did in 1982. |
 | 177546  | KW11 line clock | bit 6 — interrupt enable, bit 7 — tick flag. Ticks at 60 Hz, interrupts through vector 100 at priority 6. This is the game's "vsync". |
-| 177570  | Joystick | read-only: bit 0 — left, bit 1 — right, bit 2 — fire. A mask of the *currently held* buttons. |
+| 177570  | Joystick | read-only: bit 0 — left, bit 1 — right, bit 2 — fire, bit 3 — down. A mask of the *currently held* buttons. |
 
 The game uses the speaker for bounce/brick effects and plays Korobeiniki
 while the ball waits on the paddle — the tune Tetris made famous, and
@@ -77,6 +83,11 @@ Tetris was written on an Elektronika-60, a Soviet PDP-11 clone.
 - `programs/arkanoid.s` — Arkanoid: a 6×15 brick field, a 4×4 ball with
   per-pixel movement (bit mask tables), bounce angle controlled by where the
   ball hits the paddle, a score rendered in a 5×7 digit font, lives.
+  `programs/tetris.s` — Tetris: a 10×20 well of 24×24 cells, seven pieces ×
+  four rotations packed as 4×4-box cell tables, the board as 20 row bitmasks,
+  full-line clears with BCD scoring, levels that speed up gravity, an LFSR
+  piece bag, delayed auto-shift, and one-bit sound. No multiply or divide —
+  the whole layout is powers of two, so addressing stays additive.
   `programs/demo.s` — a simple bouncing-ball demo.
 
 ## Slots for the future "learning mode"

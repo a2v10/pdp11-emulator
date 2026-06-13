@@ -1,8 +1,15 @@
 import { useState } from 'react';
 import { Screen } from './Screen';
 import { useEmulator } from './useEmulator';
-import { JOY_FIRE, JOY_LEFT, JOY_RIGHT } from '../core/constants';
-import demoSource from '../../programs/arkanoid.s?raw';
+import { JOY_DOWN, JOY_FIRE, JOY_LEFT, JOY_RIGHT } from '../core/constants';
+import arkanoidSource from '../../programs/arkanoid.s?raw';
+import tetrisSource from '../../programs/tetris.s?raw';
+
+const PROGRAMS = {
+  arkanoid: { source: arkanoidSource, hint: '← → — paddle · space / ↑ — launch' },
+  tetris: { source: tetrisSource, hint: '← → — move · ↑ / space — rotate · ↓ — drop' },
+} as const;
+type Tab = keyof typeof PROGRAMS;
 
 const oct = (v: number): string => v.toString(8).padStart(6, '0');
 
@@ -11,9 +18,19 @@ const flagBit = (psw: number, i: number): boolean => (psw & (0o10 >> i)) !== 0;
 
 export function App() {
   const emu = useEmulator();
-  const [source, setSource] = useState(demoSource);
+  const [tab, setTab] = useState<Tab>('arkanoid');
+  const [source, setSource] = useState(PROGRAMS.arkanoid.source);
   const { machine, running, frame, view } = emu;
   const cpu = machine.cpu;
+
+  // switch demos: load the program into the editor and machine, but wait
+  // for Assemble & Run to actually start it
+  const selectTab = (t: Tab): void => {
+    if (t === tab) return;
+    setTab(t);
+    setSource(PROGRAMS[t].source);
+    emu.load(PROGRAMS[t].source); // assemble + reset, leaves it stopped
+  };
 
   // drop focus so space/arrows go to the joystick, not the button
   const unfocus = (e: React.MouseEvent<HTMLButtonElement>): void => e.currentTarget.blur();
@@ -51,6 +68,20 @@ export function App() {
       <header>
         <h1>PDP-11</h1>
         <span className={`status status-${status.toLowerCase()}`}>{status}</span>
+        <nav className="tabs">
+          {(Object.keys(PROGRAMS) as Tab[]).map((t) => (
+            <button
+              key={t}
+              className={t === tab ? 'tab active' : 'tab'}
+              onClick={(e) => {
+                unfocus(e);
+                selectTab(t);
+              }}
+            >
+              {t === 'arkanoid' ? 'Arkanoid' : 'Tetris'}
+            </button>
+          ))}
+        </nav>
       </header>
 
       <main>
@@ -105,11 +136,14 @@ export function App() {
             <button {...hold(JOY_FIRE)} aria-label="fire">
               ●
             </button>
+            <button {...hold(JOY_DOWN)} aria-label="down">
+              ▼
+            </button>
             <button {...hold(JOY_RIGHT)} aria-label="right">
               ▶
             </button>
           </div>
-          <div className="hint">← → — paddle · space / ↑ — launch</div>
+          <div className="hint">{PROGRAMS[tab].hint}</div>
 
           <table className="registers">
             <tbody>

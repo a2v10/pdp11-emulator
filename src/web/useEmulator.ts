@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Machine } from '../core/machine';
-import { CYCLES_PER_FRAME, JOY_FIRE, JOY_LEFT, JOY_RIGHT } from '../core/constants';
+import { CYCLES_PER_FRAME, JOY_DOWN, JOY_FIRE, JOY_LEFT, JOY_RIGHT } from '../core/constants';
 import { assemble, AsmError } from '../asm/assembler';
 import { SpeakerAudio } from './audio';
 
@@ -94,6 +94,7 @@ export function useEmulator() {
         case 'ArrowRight': return JOY_RIGHT;
         case ' ':
         case 'ArrowUp': return JOY_FIRE;
+        case 'ArrowDown': return JOY_DOWN;
         default: return 0;
       }
     };
