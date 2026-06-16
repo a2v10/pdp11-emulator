@@ -203,6 +203,17 @@ export function App() {
           )}
         </section>
       </main>
+
+      <footer className="footer">
+        Copyright © {new Date().getFullYear()} Oleksandr Kukhtin and{' '}
+        <a href="https://www.anthropic.com" target="_blank" rel="noopener noreferrer">
+          Claude
+        </a>
+        . Source:{' '}
+        <a href="https://github.com/a2v10/pdp11-emulator" target="_blank" rel="noopener noreferrer">
+          github.com/a2v10/pdp11-emulator
+        </a>
+      </footer>
     </div>
   );
 }
