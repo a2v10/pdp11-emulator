@@ -33,6 +33,7 @@ export const JOY_LEFT = 1;
 export const JOY_RIGHT = 2;
 export const JOY_FIRE = 4;
 export const JOY_DOWN = 0o10; // bit 3 — soft drop (Tetris); unused by Arkanoid
+export const JOY_UP = 0o20; // bit 4 — up (Pac-Man)
 
 // ~1 MHz machine at 60 frames per second
 export const CYCLES_PER_FRAME = 16667;

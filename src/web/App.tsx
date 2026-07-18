@@ -1,13 +1,15 @@
 import { useState } from 'react';
 import { Screen } from './Screen';
 import { useEmulator } from './useEmulator';
-import { JOY_DOWN, JOY_FIRE, JOY_LEFT, JOY_RIGHT } from '../core/constants';
+import { JOY_DOWN, JOY_FIRE, JOY_LEFT, JOY_RIGHT, JOY_UP } from '../core/constants';
 import arkanoidSource from '../../programs/arkanoid.s?raw';
 import tetrisSource from '../../programs/tetris.s?raw';
+import pacmanSource from '../../programs/pacman.s?raw';
 
 const PROGRAMS = {
-  arkanoid: { source: arkanoidSource, hint: '← → — paddle · space / ↑ — launch' },
-  tetris: { source: tetrisSource, hint: '← → — move · ↑ / space — rotate · ↓ — drop' },
+  arkanoid: { label: 'Arkanoid', source: arkanoidSource, hint: '← → — paddle · space / ↑ — launch' },
+  tetris: { label: 'Tetris', source: tetrisSource, hint: '← → — move · ↑ / space — rotate · ↓ — drop' },
+  pacman: { label: 'Pac-Man', source: pacmanSource, hint: '← → ↑ ↓ — move · space — start' },
 } as const;
 type Tab = keyof typeof PROGRAMS;
 
@@ -78,7 +80,7 @@ export function App() {
                 selectTab(t);
               }}
             >
-              {t === 'arkanoid' ? 'Arkanoid' : 'Tetris'}
+              {PROGRAMS[t].label}
             </button>
           ))}
         </nav>
@@ -135,6 +137,9 @@ export function App() {
             </button>
             <button {...hold(JOY_FIRE)} aria-label="fire">
               ●
+            </button>
+            <button {...hold(JOY_UP)} aria-label="up">
+              ▲
             </button>
             <button {...hold(JOY_DOWN)} aria-label="down">
               ▼

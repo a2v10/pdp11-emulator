@@ -1,9 +1,9 @@
 # PDP-11 / Arkanoid
 
 A PDP-11 emulator in TypeScript: a dependency-free core, an assembler
-(MACRO-11 subset), a React shell for the browser — and two games written
-in PDP-11 assembly: Arkanoid and Tetris. Switch between them with the
-tabs above the screen.
+(MACRO-11 subset), a React shell for the browser — and three games written
+in PDP-11 assembly: Arkanoid, Tetris and Pac-Man. Switch between them with
+the tabs above the screen.
 
 
 ![Arkanoid running on the emulator](docs/Screenshot.png)
@@ -12,8 +12,9 @@ tabs above the screen.
 **Live: https://pdp11-arkanoid.azurewebsites.net/**
 
 Controls — Arkanoid: ← → move the paddle, Space (or ↑) launches the ball.
-Tetris: ← → move, ↑ / Space rotate, ↓ soft-drop. On a phone an on-screen
-joystick appears. Pause the emulator to inspect the CPU registers mid-game.
+Tetris: ← → move, ↑ / Space rotate, ↓ soft-drop. Pac-Man: arrows steer,
+Space starts and pauses. On a phone an on-screen joystick appears. Pause
+the emulator to inspect the CPU registers mid-game.
 
 Tetris on a PDP-11 is no accident: the original was written by Alexey
 Pajitnov in 1984 on an Elektronika-60, a Soviet PDP-11 clone — so this
@@ -49,7 +50,7 @@ Pixel (x, y): byte `060000 + (y << 6) + (x >> 3)`, bit `x & 7`.
 |---------|--------|-------------|
 | 177544  | Speaker | bit 0 is the cone position, Sinclair Spectrum style. There is no tone generator: the program toggles the bit and the toggle rate *is* the pitch. Music costs CPU cycles, like it did in 1982. |
 | 177546  | KW11 line clock | bit 6 — interrupt enable, bit 7 — tick flag. Ticks at 60 Hz, interrupts through vector 100 at priority 6. This is the game's "vsync". |
-| 177570  | Joystick | read-only: bit 0 — left, bit 1 — right, bit 2 — fire, bit 3 — down. A mask of the *currently held* buttons. |
+| 177570  | Joystick | read-only: bit 0 — left, bit 1 — right, bit 2 — fire, bit 3 — down, bit 4 — up. A mask of the *currently held* buttons. |
 
 The game uses the speaker for bounce/brick effects and plays Korobeiniki
 while the ball waits on the paddle — the tune Tetris made famous, and
@@ -88,6 +89,14 @@ Tetris was written on an Elektronika-60, a Soviet PDP-11 clone.
   full-line clears with BCD scoring, levels that speed up gravity, an LFSR
   piece bag, delayed auto-shift, and one-bit sound. No multiply or divide —
   the whole layout is powers of two, so addressing stays additive.
+  `programs/pacman.s` — Pac-Man: a 28×31-tile maze kept as ASCII art in the
+  source and parsed at boot, wall outlines auto-tiled from neighbor tests,
+  16×16 sprites pre-shifted for the four even bit phases, and the arcade's
+  actual ghost AI — at each tile center a ghost minimizes the squared
+  distance to its personal target (a table of squares stands in for the
+  missing multiply). All four personalities, scatter/chase waves, frightened
+  mode, the ghost house — and Pinky's genuine 1980 look-up overflow bug,
+  reproduced on purpose.
   `programs/demo.s` — a simple bouncing-ball demo.
 
 ## Slots for the future "learning mode"

@@ -69,8 +69,8 @@ INPUT:  MOV @#JOY, R0
         JSR PC, HARDDROP   ; lands, locks and spawns the next piece
         RTS PC
 INDU:   CLR PREVD
-INRJ:   ; --- rotate, edge-triggered on the fire button ---
-        BIT #4, R0
+INRJ:   ; --- rotate, edge-triggered on the fire button (or up) ---
+        BIT #24, R0
         BNE INRF
         CLR PREVF
         BR INHZ

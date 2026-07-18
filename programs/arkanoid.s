@@ -51,8 +51,8 @@ VP3:    CMP PADB, #71       ; 57.
         BLE VP4
         MOV #71, PADB
 VP4:
-        ; --- fire button, edge-triggered ---
-        BIT #4, R0
+        ; --- fire button (or up), edge-triggered ---
+        BIT #24, R0
         BNE VF1
         CLR PREVF
         BR VF2
