@@ -1087,64 +1087,116 @@ DM2:    MOV TXV, R0
         BISB #377, 1(R3)
         BR DM9
 DM3:    CMPB R5, #1
-        BNE DM9
+        BEQ DM3A
+        BR DM9
+DM3A:   ; ask the four neighbours once, and keep the answers: the
+        ; corner pass below needs them again, and NBQ is not cheap
         MOV TXV, R0
         MOV TYV, R1
         DEC R1
         JSR PC, NBQ
-        TST R2
-        BEQ DM4
+        MOV R2, OPU
         MOV TXV, R0
-        MOV TYV, R1
-        JSR PC, CELLA
-        BISB #377, (R3)
-        BISB #377, 1(R3)
-DM4:    MOV TXV, R0
         MOV TYV, R1
         INC R1
         JSR PC, NBQ
-        TST R2
-        BEQ DM5
+        MOV R2, OPD
         MOV TXV, R0
-        MOV TYV, R1
-        JSR PC, CELLA
-        ADD #1700, R3       ; + 15 rows
-        BISB #377, (R3)
-        BISB #377, 1(R3)
-DM5:    MOV TXV, R0
         DEC R0
         MOV TYV, R1
         JSR PC, NBQ
-        TST R2
-        BEQ DM6
+        MOV R2, OPL
+        MOV TXV, R0
+        INC R0
+        MOV TYV, R1
+        JSR PC, NBQ
+        MOV R2, OPR
         MOV TXV, R0
         MOV TYV, R1
         JSR PC, CELLA
+        MOV R3, CBASE
+        ; the edges that face a corridor
+        TST OPU
+        BEQ DM4
+        BISB #377, (R3)
+        BISB #377, 1(R3)
+DM4:    TST OPD
+        BEQ DM5
+        MOV CBASE, R3
+        ADD #1700, R3       ; + 15 rows
+        BISB #377, (R3)
+        BISB #377, 1(R3)
+DM5:    TST OPL
+        BEQ DM6
+        MOV CBASE, R3
         MOV #20, R2
 DM5A:   BISB #1, (R3)
         ADD #100, R3
         SOB R2, DM5A
-DM6:    MOV TXV, R0
-        INC R0
-        MOV TYV, R1
-        JSR PC, NBQ
-        TST R2
-        BEQ DM9
-        MOV TXV, R0
-        MOV TYV, R1
-        JSR PC, CELLA
+DM6:    TST OPR
+        BEQ DM7
+        MOV CBASE, R3
         INC R3
         MOV #20, R2
 DM6A:   BISB #200, (R3)
         ADD #100, R3
         SOB R2, DM6A
-DM9:    INC TXV
-        CMP TXV, #34        ; 28.
-        BLT DM2
-        INC TYV
+DM7:    ; and close the four inner corners
+        MOV #-1, CDX
+        MOV #-1, CDY
+        JSR PC, CORN
+        MOV #1, CDX
+        JSR PC, CORN
+        MOV #1, CDY
+        JSR PC, CORN
+        MOV #-1, CDX
+        JSR PC, CORN
+DM9:    INC TXV             ; the corner pass made this loop body too
+        CMP TXV, #34        ; long for a branch to reach back - JMP,
+        BGE DM9A            ; exactly as one did in 1975
+        JMP DM2
+DM9A:   INC TYV
         CMP TYV, #37        ; 31.
-        BLT DM1
+        BGE DM9B
+        JMP DM1
+DM9B:   RTS PC
+
+; CORN: close one concave corner of tile (TXV, TYV), CDX/CDY being the
+; diagonal. Where a corridor turns, both orthogonal neighbours are wall
+; - so neither side draws an edge - and the two outlines that do meet
+; there pass diagonally, one pixel apart. That joint pixel is this
+; routine's whole job.
+CORN:   TST CDX
+        BLT CRN0
+        TST OPR             ; that side is open: it has an edge already
+        BNE CRN9
+        BR CRN1
+CRN0:   TST OPL
+        BNE CRN9
+CRN1:   TST CDY
+        BLT CRN2
+        TST OPD
+        BNE CRN9
+        BR CRN3
+CRN2:   TST OPU
+        BNE CRN9
+CRN3:   MOV TXV, R0
+        ADD CDX, R0
+        MOV TYV, R1
+        ADD CDY, R1
+        JSR PC, NBQ
+        TST R2
+        BEQ CRN9            ; nothing open diagonally: solid rock
+        MOV CBASE, R3
+        TST CDY
+        BLT CRN4
+        ADD #1700, R3       ; the cell's bottom row
+CRN4:   TST CDX
+        BLT CRN5
+        BISB #200, 1(R3)    ; rightmost pixel
         RTS PC
+CRN5:   BISB #1, (R3)       ; leftmost pixel
+CRN9:   RTS PC
 
 ; a dot is 4x4 in the tile's center: bits 6-7 of the left byte and
 ; 0-1 of the right one - byte-clean, like everything on this field
@@ -1494,6 +1546,13 @@ EVIS:   .WORD 1
 EPTR:   .WORD 0
 TXV:    .WORD 0
 TYV:    .WORD 0
+CDX:    .WORD 0
+CDY:    .WORD 0
+OPU:    .WORD 0             ; the tile's neighbours, asked once each
+OPD:    .WORD 0
+OPL:    .WORD 0
+OPR:    .WORD 0
+CBASE:  .WORD 0             ; and its top-left byte address
 SEED:   .WORD 30071
 WAKAF:  .WORD 0
 SNDP:   .WORD 0

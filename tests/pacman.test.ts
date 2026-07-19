@@ -31,7 +31,9 @@ function boot() {
   const word = (name: string, off = 0): number => (m.bus.readWord(sym(name) + off) << 16) >> 16;
   const poke = (name: string, v: number, off = 0): void =>
     m.bus.writeWord(sym(name) + off, v & 0xffff);
-  for (let i = 0; i < 40; i++) m.runFrame(); // boot: clear, parse, trace, paint
+  // boot paints for ~0.8 s of machine time: clear, parse, trace, paint
+  for (let i = 0; i < 200 && !m.cpu.waiting; i++) m.runFrame();
+  expect(m.cpu.waiting).toBe(true);
   return { m, r, sym, word, poke };
 }
 
