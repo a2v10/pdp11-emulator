@@ -6,9 +6,15 @@
 ; The field is 28x31 tiles of 16x16 px (448x496), centered with 32 px
 ; side margins under a 16 px score strip. A tile is exactly 2 bytes of
 ; a framebuffer row, so walls and dots need no bit shifting at all.
-; The maze itself is ASCII art near the end of this file; the loader
-; parses it into a tile map ('#' wall, '.' dot, 'o' energizer, '-' door)
-; and traces wall edges that face a corridor - boot-time auto-tiling.
+;
+; The maze itself is near the end of this file, drawn as a picture in
+; the machine's own box-drawing characters - one per cell, plus '.' for
+; a dot, 'o' for an energizer, '=' for the house gate. At boot each
+; character is stamped from the glyph table, and the tile map that the
+; actors walk on is read back off it: any character with a glyph is
+; rock. Deriving that way round costs one bit per character; deriving
+; the picture from the solidity instead would cost a case for every
+; arrangement of neighbours, and the joints it got wrong were visible.
 ;
 ; Sprites are 16x16 images (a 14x14 body with a 1 px margin), stored
 ; pre-shifted for the 4 even bit phases: everything moves 2 px/frame,
