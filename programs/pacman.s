@@ -187,14 +187,14 @@ SPP4:   ASR R0
         JSR PC, DRWPAC
         JSR PC, DRWGH
         JSR PC, ENEBLK
-        ; the running script, or the blue trill, or silence
+        ; the running script, or the blue warble, or silence
         JSR PC, SNDCUR
         TST R0
         BNE SPL1
         TST FRTCNT
         BEQ SPL1
-        MOV #NA4, R0
-        BIT #10, FCNT
+        MOV #NA4, R0        ; two notes swapped every other frame:
+        BIT #2, FCNT        ; a 15 Hz wub-wub texture, not a tune
         BEQ SPL1
         MOV #ND5, R0
 SPL1:   JMP PLAY
