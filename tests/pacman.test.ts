@@ -7,13 +7,16 @@ import { FB_BASE, JOY_FIRE, JOY_LEFT, JOY_UP } from '../src/core/constants';
 
 const source = readFileSync(join(__dirname, '../programs/pacman.s'), 'utf8');
 
-// the maze exactly as the assembler sees it
+// the maze exactly as the assembler sees it: the art is a picture drawn
+// in the machine's pseudographics, so a wall is any character with a glyph
 const ART = [...source.matchAll(/\.ASCII \/(.*)\//g)].map((m) => m[1]);
+const WALL = '─│┌┐└┘├┤┬┴┼';
+const GATE = '═';
 const W = 28;
 const H = 31;
 const at = (x: number, y: number): string =>
-  x < 0 || x >= W || y < 0 || y >= H ? '#' : ART[y][x];
-const open = (x: number, y: number): boolean => at(x, y) !== '#';
+  x < 0 || x >= W || y < 0 || y >= H ? '│' : ART[y][x];
+const open = (x: number, y: number): boolean => !WALL.includes(at(x, y)) && at(x, y) !== GATE;
 const inHouse = (x: number, y: number): boolean => y >= 12 && y <= 15 && x >= 10 && x <= 17;
 
 function boot() {
@@ -55,13 +58,15 @@ describe('the maze itself', () => {
     expect(ART.length).toBe(H);
     for (const row of ART) {
       expect(row.length).toBe(W);
-      expect([...row].every((ch) => '#.o- '.includes(ch))).toBe(true);
+      expect([...row].every((ch) => (WALL + GATE + '.o ').includes(ch))).toBe(true);
     }
   });
 
-  it('is left-right symmetric', () => {
+  it('is left-right symmetric — mirrored, so the corners flip too', () => {
+    const MIRROR: Record<string, string> = { '┌': '┐', '┐': '┌', '└': '┘', '┘': '└', '├': '┤', '┤': '├' };
+    const flip = (ch: string): string => MIRROR[ch] ?? ch;
     for (let y = 0; y < H; y++)
-      for (let x = 0; x < W / 2; x++) expect(at(x, y)).toBe(at(W - 1 - x, y));
+      for (let x = 0; x < W / 2; x++) expect(at(x, y)).toBe(flip(at(W - 1 - x, y)));
   });
 
   it('has no dead ends: every corridor tile has two ways out', () => {
@@ -71,8 +76,8 @@ describe('the maze itself', () => {
         let n = 0;
         if (open(x - 1, y) && !inHouse(x - 1, y)) n++;
         if (open(x + 1, y) && !inHouse(x + 1, y)) n++;
-        if (open(x, y - 1) && at(x, y - 1) !== '-') n++;
-        if (open(x, y + 1) && at(x, y + 1) !== '-') n++;
+        if (open(x, y - 1)) n++;
+        if (open(x, y + 1)) n++;
         if (x === 0 && open(W - 1, y)) n++;
         if (x === W - 1 && open(0, y)) n++;
         expect(n, `tile (${x},${y})`).toBeGreaterThanOrEqual(2);
@@ -85,7 +90,7 @@ describe('the maze itself', () => {
     while (stack.length) {
       const [x, y] = stack.pop()!;
       const k = `${x},${y}`;
-      if (seen.has(k) || !open(x, y) || at(x, y) === '-' || inHouse(x, y)) continue;
+      if (seen.has(k) || !open(x, y) || inHouse(x, y)) continue;
       seen.add(k);
       stack.push([x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]);
       if (x === 0) stack.push([W - 1, y]);
@@ -111,8 +116,10 @@ describe('pacman boots', () => {
     expect(word('DOTCNT')).toBe(artDots);
     expect(word('STATE')).toBe(0);
     expect(m.cpu.waiting).toBe(true);
-    // the top-left wall tile traces its outer edge at y=16
-    expect(m.memory.bytes[FB_BASE + 16 * 64 + 4]).toBe(0xff);
+    // a '─' of the top border: its rail runs through the cell's middle,
+    // full width, so both bytes of tile (5,0) are solid at screen row 23
+    expect(m.memory.bytes[FB_BASE + 23 * 64 + 14]).toBe(0xff);
+    expect(m.memory.bytes[FB_BASE + 23 * 64 + 15]).toBe(0xff);
     // the dot at tile (1,1): rows 38..41, bits 6-7 of byte 6
     expect(m.memory.bytes[FB_BASE + 38 * 64 + 6] & 0xc0).toBe(0xc0);
     // squares table: 5*5 = 25

@@ -77,7 +77,10 @@ Tetris was written on an Elektronika-60, a Soviet PDP-11 clone.
   `. = addr`, `.WORD/.BYTE/.ASCII/.ASCIZ/.BLKW/.BLKB/.EVEN/.END`, expressions
   (octal by default, `64.` for decimal, `'A` for a character, left-to-right
   evaluation with no operator precedence — just like the real MACRO-11), all
-  addressing modes. Output: an image + a symbol table + an address ↔ source
+  addressing modes. Above 0177 the machine's character set is code page 437,
+  so box-drawing characters written literally in a `.ASCII` string assemble
+  to the pseudographics codes every micro of the era had in its character ROM
+  — which is how the Pac-Man maze stays a picture in the source. Output: an image + a symbol table + an address ↔ source
   line map for the debugger.
 - `src/web/` — the React shell: a canvas screen (framebuffer → ImageData once
   per frame), keyboard → joystick, Run/Pause/Step/Frame, a register panel,
@@ -90,8 +93,11 @@ Tetris was written on an Elektronika-60, a Soviet PDP-11 clone.
   full-line clears with BCD scoring, levels that speed up gravity, an LFSR
   piece bag, delayed auto-shift, and one-bit sound. No multiply or divide —
   the whole layout is powers of two, so addressing stays additive.
-  `programs/pacman.s` — Pac-Man: a 28×31-tile maze kept as ASCII art in the
-  source and parsed at boot, wall outlines auto-tiled from neighbor tests,
+  `programs/pacman.s` — Pac-Man: a 28×31-tile maze drawn in the source as a
+  picture, in the machine's own box-drawing characters — one character per
+  16×16 cell, each glyph carrying its own joints, so walls meet flush by
+  construction and solidity is read back off the picture rather than the
+  picture worked out from a solidity map. Plus
   16×16 sprites pre-shifted for the four even bit phases, and the arcade's
   actual ghost AI — at each tile center a ghost minimizes the squared
   distance to its personal target (a table of squares stands in for the

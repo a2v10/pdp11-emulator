@@ -150,6 +150,15 @@ describe('directives and expressions', () => {
     expect(Array.from(z.image.slice(0o1000, 0o1002))).toEqual([65, 0]);
   });
 
+  it('.ASCII maps box-drawing characters to code page 437', () => {
+    // one byte per character, whatever it costs the source file in UTF-8
+    const r = assemble('.ASCII /┌─┐│└┘═█/');
+    expect(r.errors).toEqual([]);
+    expect(Array.from(r.image.slice(0o1000, 0o1010))).toEqual([
+      0o332, 0o304, 0o277, 0o263, 0o300, 0o331, 0o315, 0o333,
+    ]);
+  });
+
   it('.BLKW reserves without emitting', () => {
     const src = `
 A:      .BLKW 4

@@ -8,6 +8,7 @@ import { DEFS, InstrDef } from '../core/instructions';
  *   instructions from the programmer's card (DEFS), incl. BHIS/BLO aliases
  *   condition-code ops (NOP, CLC, SEC, ...)
  *   directives: .WORD .BYTE .ASCII .ASCIZ .BLKW .BLKB .EVEN .END
+ *     (.ASCII maps box-drawing characters to their code page 437 codes)
  *   expressions: octal by default, trailing dot = decimal ("64."),
  *     'c char literal, symbols, ".", operators + - * / & ! evaluated
  *     left to right (no precedence — just like MACRO-11), <> for grouping
@@ -604,6 +605,23 @@ export function assemble(source: string): AsmResult {
   return { image, regions, symbols, lineMap, entry: entry < 0 ? 0o001000 : entry, errors };
 }
 
+/**
+ * Above 0177 the machine's character set is IBM code page 437 — the
+ * pseudographics every micro of the era carried in its character ROM.
+ * Box-drawing characters written literally in the source assemble to
+ * those codes, so a picture in a .ASCII string stays a picture.
+ */
+const CP437_HIGH = new Map<string, number>(
+  [
+    '░▒▓│┤╡╢╖╕╣║╗╝╜╛┐', // 0260..0277
+    '└┴┬├─┼╞╟╚╔╩╦╠═╬╧', // 0300..0317
+    '╨╤╥╙╘╒╓╫╪┘┌█▄▌▐▀', // 0320..0337
+  ]
+    .join('')
+    .split('')
+    .map((ch, i) => [ch, 0o260 + i] as const),
+);
+
 function parseStringPayload(s: string, err: (m: string) => void): number[] {
   if (s.length < 2) {
     err('.ASCII needs a /delimited/ string');
@@ -616,6 +634,6 @@ function parseStringPayload(s: string, err: (m: string) => void): number[] {
     return [];
   }
   const bytes: number[] = [];
-  for (const ch of s.slice(1, close)) bytes.push(ch.charCodeAt(0) & 0xff);
+  for (const ch of s.slice(1, close)) bytes.push(CP437_HIGH.get(ch) ?? ch.charCodeAt(0) & 0xff);
   return bytes;
 }

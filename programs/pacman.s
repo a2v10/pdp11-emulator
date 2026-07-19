@@ -969,10 +969,8 @@ RDT2:   CMPB R2, #3
         JMP DRWENE
 RDT3:   CMPB R2, #4
         BNE RDT9
-        JSR PC, CELLA       ; a passing ghost bites the door bar -
-        ADD #700, R3        ; hang it back on its hinges
-        BISB #377, (R3)
-        BISB #377, 1(R3)
+        MOV #GDOOR, R2      ; a passing ghost bites the gate: rehang it
+        JMP DRWGLY
 RDT9:   RTS PC
 
 ; ===================== the maze on screen =====================
@@ -1006,24 +1004,6 @@ TILEAD: MOV R1, R2
         SUB R2, R3          ; ty*28 - one subtract instead of a multiply
         ADD R0, R3
         ADD #MAP, R3
-        RTS PC
-
-; NBQ: is tile (R0, R1) open? off the map counts as open, so the outer
-; border traces its own outline. Preserves R0, R1; answer in R2.
-NBQ:    CMP R0, #0
-        BLT NBQ1
-        CMP R0, #33
-        BGT NBQ1
-        CMP R1, #0
-        BLT NBQ1
-        CMP R1, #36
-        BGT NBQ1
-        JSR PC, TILEAD
-        CMPB (R3), #1
-        BEQ NBQ0
-NBQ1:   MOV #1, R2
-        RTS PC
-NBQ0:   CLR R2
         RTS PC
 
 ; may an actor step into tile (R0, R1)? Doors are walls to everyone -
@@ -1070,133 +1050,54 @@ STEPTL: MOV R4, R2
         ADD TDY(R2), R1
         RTS PC
 
-; boot: trace every wall edge that faces an open tile, bar the doors
-DRWMAZ: CLR TYV
-DM1:    CLR TXV
-DM2:    MOV TXV, R0
-        MOV TYV, R1
-        JSR PC, TILEAD
-        MOVB (R3), R5
-        CMPB R5, #4
-        BNE DM3
-        MOV TXV, R0         ; the door: a bar across the middle
-        MOV TYV, R1
-        JSR PC, CELLA
-        ADD #700, R3        ; + 7 rows
-        BISB #377, (R3)
-        BISB #377, 1(R3)
-        BR DM9
-DM3:    CMPB R5, #1
-        BEQ DM3A
-        BR DM9
-DM3A:   ; ask the four neighbours once, and keep the answers: the
-        ; corner pass below needs them again, and NBQ is not cheap
-        MOV TXV, R0
-        MOV TYV, R1
-        DEC R1
-        JSR PC, NBQ
-        MOV R2, OPU
-        MOV TXV, R0
-        MOV TYV, R1
-        INC R1
-        JSR PC, NBQ
-        MOV R2, OPD
-        MOV TXV, R0
-        DEC R0
-        MOV TYV, R1
-        JSR PC, NBQ
-        MOV R2, OPL
-        MOV TXV, R0
-        INC R0
-        MOV TYV, R1
-        JSR PC, NBQ
-        MOV R2, OPR
-        MOV TXV, R0
-        MOV TYV, R1
-        JSR PC, CELLA
-        MOV R3, CBASE
-        ; the edges that face a corridor
-        TST OPU
-        BEQ DM4
-        BISB #377, (R3)
-        BISB #377, 1(R3)
-DM4:    TST OPD
-        BEQ DM5
-        MOV CBASE, R3
-        ADD #1700, R3       ; + 15 rows
-        BISB #377, (R3)
-        BISB #377, 1(R3)
-DM5:    TST OPL
-        BEQ DM6
-        MOV CBASE, R3
-        MOV #20, R2
-DM5A:   BISB #1, (R3)
-        ADD #100, R3
-        SOB R2, DM5A
-DM6:    TST OPR
-        BEQ DM7
-        MOV CBASE, R3
-        INC R3
-        MOV #20, R2
-DM6A:   BISB #200, (R3)
-        ADD #100, R3
-        SOB R2, DM6A
-DM7:    ; and close the four inner corners
-        MOV #-1, CDX
-        MOV #-1, CDY
-        JSR PC, CORN
-        MOV #1, CDX
-        JSR PC, CORN
-        MOV #1, CDY
-        JSR PC, CORN
-        MOV #-1, CDX
-        JSR PC, CORN
-DM9:    INC TXV             ; the corner pass made this loop body too
-        CMP TXV, #34        ; long for a branch to reach back - JMP,
-        BGE DM9A            ; exactly as one did in 1975
-        JMP DM2
-DM9A:   INC TYV
-        CMP TYV, #37        ; 31.
-        BGE DM9B
-        JMP DM1
-DM9B:   RTS PC
-
-; CORN: close one concave corner of tile (TXV, TYV), CDX/CDY being the
-; diagonal. Where a corridor turns, both orthogonal neighbours are wall
-; - so neither side draws an edge - and the two outlines that do meet
-; there pass diagonally, one pixel apart. That joint pixel is this
-; routine's whole job.
-CORN:   TST CDX
-        BLT CRN0
-        TST OPR             ; that side is open: it has an edge already
-        BNE CRN9
-        BR CRN1
-CRN0:   TST OPL
-        BNE CRN9
-CRN1:   TST CDY
-        BLT CRN2
-        TST OPD
-        BNE CRN9
-        BR CRN3
-CRN2:   TST OPU
-        BNE CRN9
-CRN3:   MOV TXV, R0
-        ADD CDX, R0
-        MOV TYV, R1
-        ADD CDY, R1
-        JSR PC, NBQ
-        TST R2
-        BEQ CRN9            ; nothing open diagonally: solid rock
-        MOV CBASE, R3
-        TST CDY
-        BLT CRN4
-        ADD #1700, R3       ; the cell's bottom row
-CRN4:   TST CDX
-        BLT CRN5
-        BISB #200, 1(R3)    ; rightmost pixel
+; GLYPH: the glyph number for art character R2, or 0 if it is not a
+; wall. MOVB into a register sign-extends, hence the BIC.
+GLYPH:  BIC #177400, R2
+        SUB #263, R2        ; the pseudographics start at 0263
+        BLT GLY0
+        CMP R2, #47         ; 39.
+        BGT GLY0
+        MOVB GIDX(R2), R2
         RTS PC
-CRN5:   BISB #1, (R3)       ; leftmost pixel
-CRN9:   RTS PC
+GLY0:   CLR R2
+        RTS PC
+
+; DRWGLY: paint glyph R2 in tile (R0, R1) - 16 rows of two bytes, and
+; not one mask in sight: 16 px is exactly two bytes of a screen row
+DRWGLY: MOV R2, -(SP)
+        JSR PC, CELLA
+        MOV (SP)+, R2
+        DEC R2
+        ASL R2
+        ASL R2
+        ASL R2
+        ASL R2
+        ASL R2              ; * 32.: bytes per glyph
+        ADD #GLYPHS, R2
+        MOV #20, R4
+DGY1:   MOVB (R2)+, (R3)
+        MOVB (R2)+, 1(R3)
+        ADD #100, R3
+        SOB R4, DGY1
+        RTS PC
+
+; boot: stamp the picture the art draws, one glyph per cell
+DRWMAZ: MOV #ART, R5
+        CLR TYV
+DM1:    CLR TXV
+DM2:    MOVB (R5)+, R2
+        JSR PC, GLYPH
+        BEQ DM9
+        MOV TXV, R0
+        MOV TYV, R1
+        JSR PC, DRWGLY
+DM9:    INC TXV
+        CMP TXV, #34        ; 28.
+        BLT DM2
+        INC TYV
+        CMP TYV, #37        ; 31.
+        BLT DM1
+        RTS PC
 
 ; a dot is 4x4 in the tile's center: bits 6-7 of the left byte and
 ; 0-1 of the right one - byte-clean, like everything on this field
@@ -1366,29 +1267,35 @@ SQI1:   MOV R2, (R0)+
         BLT SQI1
         RTS PC
 
-; parse the ASCII maze into tile codes: 0 empty, 1 wall, 2 dot,
-; 3 energizer, 4 door - and count the larder
+; parse the art into tile codes: 0 empty, 1 wall, 2 dot, 3 energizer,
+; 4 gate - and count the larder. Solidity falls out of the picture: any
+; character that has a glyph is rock. That is the cheap direction to
+; derive in - one bit per character, no cases at all.
 MAPINI: MOV #ART, R0
         MOV #MAP, R1
         MOV #1544, R2       ; 868. tiles
         CLR DOTCNT
 MI1:    MOVB (R0)+, R3
         CLR R4
-        CMPB R3, #43        ; '#'
+        CMPB R3, #56        ; '.'
         BNE MI2
-        MOV #1, R4
-        BR MI8
-MI2:    CMPB R3, #56        ; '.'
-        BNE MI3
         MOV #2, R4
         INC DOTCNT
         BR MI8
-MI3:    CMPB R3, #157       ; 'o'
-        BNE MI4
+MI2:    CMPB R3, #157       ; 'o'
+        BNE MI3
         MOV #3, R4
         INC DOTCNT
         BR MI8
-MI4:    CMPB R3, #55        ; '-'
+MI3:    MOV R2, -(SP)
+        MOV R3, R2
+        JSR PC, GLYPH
+        MOV R2, R3
+        MOV (SP)+, R2
+        TST R3
+        BEQ MI8
+        MOV #1, R4
+        CMP R3, #GDOOR
         BNE MI8
         MOV #4, R4
 MI8:    MOVB R4, (R1)+
@@ -1546,13 +1453,6 @@ EVIS:   .WORD 1
 EPTR:   .WORD 0
 TXV:    .WORD 0
 TYV:    .WORD 0
-CDX:    .WORD 0
-CDY:    .WORD 0
-OPU:    .WORD 0             ; the tile's neighbours, asked once each
-OPD:    .WORD 0
-OPL:    .WORD 0
-OPR:    .WORD 0
-CBASE:  .WORD 0             ; and its top-left byte address
 SEED:   .WORD 30071
 WAKAF:  .WORD 0
 SNDP:   .WORD 0
@@ -1610,44 +1510,259 @@ DFONT:  .BYTE 16, 21, 21, 21, 21, 21, 16, 0     ; 0
         .BYTE 16, 21, 21, 36, 20, 21, 16, 0     ; 9
 
 ; ===================== the maze =====================
-; 31 rows by 28 columns; '#' wall, '.' dot, 'o' energizer, '-' door,
-; space - bare corridor. Not Namco's board - ours, same spirit.
-ART:    .ASCII /############################/
-        .ASCII /#............##............#/
-        .ASCII /#.####.#####.##.#####.####.#/
-        .ASCII /#o####.#####.##.#####.####o#/
-        .ASCII /#..........................#/
-        .ASCII /#.####.##.########.##.####.#/
-        .ASCII /#......##..........##......#/
-        .ASCII /######.##.########.##.######/
-        .ASCII /######.##.########.##.######/
-        .ASCII /######................######/
-        .ASCII /#########.########.#########/
-        .ASCII /#########          #########/
-        .ASCII /######### ###--### #########/
-        .ASCII /######### #      # #########/
-        .ASCII /          #      #          /
-        .ASCII /######### #      # #########/
-        .ASCII /######### ######## #########/
-        .ASCII /#########          #########/
-        .ASCII /#########.########.#########/
-        .ASCII /#########.########.#########/
-        .ASCII /#..........................#/
-        .ASCII /#.####.#####.##.#####.####.#/
-        .ASCII /#o####.#####.##.#####.####o#/
-        .ASCII /#............  ............#/
-        .ASCII /#.####.#####.##.#####.####.#/
-        .ASCII /#.####.#####.##.#####.####.#/
-        .ASCII /#......##....##....##......#/
-        .ASCII /#.####.##.########.##.####.#/
-        .ASCII /#.####.##.########.##.####.#/
-        .ASCII /#..........................#/
-        .ASCII /############################/
+; 31 rows by 28 columns, drawn in the machine's own pseudographics: the
+; art IS the picture, one character per 16x16 cell, and every wall glyph
+; carries its own joints. '.' dot, 'o' energizer, '=' the house gate,
+; space - bare corridor or enclosed rock. Not Namco's board - ours.
+ART:    .ASCII /┌────────────┬┬────────────┐/
+        .ASCII /│............││............│/
+        .ASCII /│.┌──┐.┌───┐.││.┌───┐.┌──┐.│/
+        .ASCII /│o└──┘.└───┘.└┘.└───┘.└──┘o│/
+        .ASCII /│..........................│/
+        .ASCII /│.────.┌┐.────────.┌┐.────.│/
+        .ASCII /│......││..........││......│/
+        .ASCII /├────┐.││.┌──────┐.││.┌────┤/
+        .ASCII /│    │.└┘.└──────┘.└┘.│    │/
+        .ASCII /│    │................│    │/
+        .ASCII /│    └──┐.────────.┌──┘    │/
+        .ASCII /│       │          │       │/
+        .ASCII /│       │ ┌──══──┐ │       │/
+        .ASCII /└───────┘ │      │ └───────┘/
+        .ASCII /          │      │          /
+        .ASCII /┌───────┐ │      │ ┌───────┐/
+        .ASCII /│       │ └──────┘ │       │/
+        .ASCII /│       │          │       │/
+        .ASCII /│       │.┌──────┐.│       │/
+        .ASCII /├───────┘.└──────┘.└───────┤/
+        .ASCII /│..........................│/
+        .ASCII /│.┌──┐.┌───┐.┌┐.┌───┐.┌──┐.│/
+        .ASCII /│o└──┘.└───┘.└┘.└───┘.└──┘o│/
+        .ASCII /│............  ............│/
+        .ASCII /│.┌──┐.┌───┐.┌┐.┌───┐.┌──┐.│/
+        .ASCII /│.└──┘.│┌──┘.││.└──┐│.└──┘.│/
+        .ASCII /│......││....││....││......│/
+        .ASCII /│.┌──┐.││.┌──┘└──┐.││.┌──┐.│/
+        .ASCII /│.└──┘.└┘.└──────┘.└┘.└──┘.│/
+        .ASCII /│..........................│/
+        .ASCII /└──────────────────────────┘/
 
         .EVEN
 MAP:    .BLKB 1544          ; 868. tile codes
         .EVEN
 SQT:    .BLKW 100           ; squares of 0..63.
+
+; --- maze glyphs begin (generated by gen-maze-glyphs.mjs, do not edit) ---
+GDOOR   = 12.
+; character code -> glyph number (0 = not a wall); base is 0263
+GIDX:   .BYTE 1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 4, 5, 6, 7, 10, 11, 0, 0, 0, 0, 0, 0, 0, 14, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 12, 13
+        .EVEN
+; 16x16 glyphs, two bytes per row, bit 0 leftmost
+GLYPHS:
+	; 0263
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	; 0264
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 377, 1
+	.BYTE 377, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	; 0277
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 377, 1
+	.BYTE 377, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	; 0300
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 377
+	.BYTE 200, 377
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 0, 0
+	; 0301
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 377, 377
+	.BYTE 377, 377
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 0, 0
+	; 0302
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 377, 377
+	.BYTE 377, 377
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	; 0303
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 377
+	.BYTE 200, 377
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	; 0304
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 377, 377
+	.BYTE 377, 377
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 0, 0
+	; 0305
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 377, 377
+	.BYTE 377, 377
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	; 0331
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 377, 1
+	.BYTE 377, 1
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 0, 0
+	; 0332
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 200, 377
+	.BYTE 200, 377
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	.BYTE 200, 1
+	; 0315
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 347, 234
+	.BYTE 347, 234
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 0, 0
+	.BYTE 0, 0
+; --- maze glyphs end ---
 
 ; --- sprites begin (generated by gen-sprites.mjs, do not edit) ---
 PACC:
