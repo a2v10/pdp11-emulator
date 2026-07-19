@@ -23,11 +23,15 @@ export const VEC_IOT = 0o020;
 export const VEC_EMT = 0o030;
 export const VEC_TRAP = 0o034;
 export const VEC_CLOCK = 0o100; // KW11 line clock, priority 6
+export const VEC_PCLK = 0o104; // KW11-P programmable clock, priority 6
 
 // Device registers
 export const KW11_LKS = 0o177546; // line clock status: bit 6 = interrupt enable, bit 7 = monitor flag
 export const JOY_REG = 0o177570; // joystick state, read-only
 export const SPK_REG = 0o177544; // speaker: bit 0 is the cone position, Spectrum-style
+export const KW11P_CSR = 0o172540; // KW11-P: rate select (bits 0-1), IE (bit 6), done (bit 7)
+export const KW11P_CSB = 0o172542; // KW11-P count-set buffer: the interval
+export const KW11P_CNT = 0o172544; // KW11-P current count, read-only
 
 export const JOY_LEFT = 1;
 export const JOY_RIGHT = 2;

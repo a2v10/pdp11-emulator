@@ -50,6 +50,7 @@ Pixel (x, y): byte `060000 + (y << 6) + (x >> 3)`, bit `x & 7`.
 |---------|--------|-------------|
 | 177544  | Speaker | bit 0 is the cone position, Sinclair Spectrum style. There is no tone generator: the program toggles the bit and the toggle rate *is* the pitch. Music costs CPU cycles, like it did in 1982. |
 | 177546  | KW11 line clock | bit 6 — interrupt enable, bit 7 — tick flag. Ticks at 60 Hz, interrupts through vector 100 at priority 6. This is the game's "vsync". |
+| 172540–172544 | KW11-P programmable clock | repeated-interval countdown: rate select (bits 0–1: 100 kHz, 10 kHz, or the external input — wired here to a 125 kHz crystal), interrupt enable (bit 6), done (bit 7); vector 104. Pac-Man's sound engine: a note's half-period goes into the count-set buffer (A₄ = 142 → 440.1 Hz) and every interrupt flips the speaker cone — a background tone that costs the CPU only its interrupts, which is why the frame handler runs at priority 4 there. Writing the buffer mid-note changes pitch without resetting the phase. |
 | 177570  | Joystick | read-only: bit 0 — left, bit 1 — right, bit 2 — fire, bit 3 — down, bit 4 — up. A mask of the *currently held* buttons. |
 
 The game uses the speaker for bounce/brick effects and plays Korobeiniki

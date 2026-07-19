@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { ORG, mk, runToHalt, steps } from './helpers';
-import { JOY_FIRE, JOY_LEFT, JOY_REG, KW11_LKS, SPK_REG } from '../src/core/constants';
+import {
+  JOY_FIRE,
+  JOY_LEFT,
+  JOY_REG,
+  KW11_LKS,
+  KW11P_CSB,
+  KW11P_CSR,
+  SPK_REG,
+} from '../src/core/constants';
 
 describe('KW11 line clock', () => {
   it('tick sets the monitor bit', () => {
@@ -39,6 +47,60 @@ describe('KW11 line clock', () => {
     m.kw11.tick();
     runToHalt(m);
     expect(m.cpu.regs[0]).toBe(2); // handler never ran
+  });
+});
+
+describe('KW11-P programmable clock', () => {
+  it('interrupts through vector 104 at the programmed interval', () => {
+    // preset 5 on the 125 kHz crystal (8 cycles/tick) = every 40 cycles
+    // MOV #5,@#CSB; MOV #103,@#CSR; loop: WAIT; BR loop
+    const m = mk([
+      0o012737, 5, KW11P_CSB,
+      0o012737, 0o103, KW11P_CSR,
+      0o000001, 0o000776,
+    ]);
+    m.loadWords(0o104, [0o2000, 0o340]);
+    m.loadWords(0o2000, [0o005200, 0o000002]); // INC R0; RTI
+    m.run(4000);
+    const fired = m.cpu.regs[0];
+    expect(fired).toBeGreaterThan(80);
+    expect(fired).toBeLessThan(105);
+  });
+
+  it('no interrupts with IE clear; done flag still sets', () => {
+    const m = mk([
+      0o012737, 5, KW11P_CSB,
+      0o012737, 3, KW11P_CSR, // rate only, no IE
+      0o000240, 0o000776, // NOP; BR .-2
+    ]);
+    m.loadWords(0o104, [0o2000, 0o340]);
+    m.loadWords(0o2000, [0o005200, 0o000002]);
+    m.run(2000);
+    expect(m.cpu.regs[0]).toBe(0);
+    expect(m.bus.readWord(KW11P_CSR) & 0o200).toBe(0o200);
+  });
+
+  it('writing the buffer mid-count does not reset the phase', () => {
+    const m = mk([]);
+    m.kw11p.writeWord(KW11P_CSB, 5);
+    m.kw11p.writeWord(KW11P_CSR, 3); // armed: 40 cycles to expiry
+    m.kw11p.advance(30);
+    m.kw11p.writeWord(KW11P_CSB, 100); // the next note
+    expect(m.kw11p.rem).toBe(10); // current half-period undisturbed
+    m.kw11p.advance(10);
+    expect(m.kw11p.rem).toBe(800); // reloaded with the new preset
+  });
+
+  it('snapshot carries a sounding note across restore', () => {
+    const m = mk([]);
+    m.kw11p.writeWord(KW11P_CSB, 7);
+    m.kw11p.writeWord(KW11P_CSR, 0o103);
+    m.kw11p.advance(20);
+    const snap = m.snapshot();
+    m.kw11p.advance(30);
+    m.restore(snap);
+    expect(m.kw11p.rem).toBe(36);
+    expect(m.kw11p.preset).toBe(7);
   });
 });
 

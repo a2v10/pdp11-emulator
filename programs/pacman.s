@@ -28,9 +28,30 @@ FB      = 60000
 LKS     = 177546            ; KW11 line clock: the 60 Hz heartbeat
 JOY     = 177570            ; bit 0 left, 1 right, 2 fire, 3 down, 4 up
 SPK     = 177544            ; speaker: bit 0 is the cone
+PCSR    = 172540            ; KW11-P clock: rate select bits 0-1, IE bit 6
+PCSB    = 172542            ; KW11-P count-set buffer: the half-period
 
-        . = 100             ; clock interrupt vector
-        .WORD VSYNC, 340
+; Sound rides the KW11-P programmable clock: its external input is wired
+; to a 125 kHz crystal, the preset is a note's half-period in crystal
+; ticks, and every interrupt through vector 104 flips the speaker cone.
+; The tone never stops at a frame boundary - which is why the frame
+; handler runs at priority 4: the metronome must be able to cut in.
+; Note table: preset = 125000 / (2 * freq); A4 = 142. -> 440.1 Hz.
+NA3     = 284.
+NA4     = 142.
+NB4     = 127.
+NC5     = 119.
+NCS5    = 113.
+ND5     = 106.
+NE5     = 95.
+NF5     = 89.
+NG5     = 80.
+NA5     = 71.
+
+        . = 100             ; line clock: the frame handler
+        .WORD VSYNC, 200    ; priority 4 - the music clock outranks it
+        . = 104             ; KW11-P: half a period per interrupt
+        .WORD PTICK, 340
 
         . = 1000
 START:  MOV #60000, SP
@@ -56,6 +77,12 @@ VSYNC:  MOV R0, -(SP)
         MOV R3, -(SP)
         MOV R4, -(SP)
         MOV R5, -(SP)
+        ; at priority 4 a slow frame (the board rebuild) can be caught
+        ; by the next tick - the latch makes the late tick just drop
+        TST INVS
+        BEQ VSGO
+        JMP VSOUT
+VSGO:   MOV #1, INVS
         INC FCNT
         ; --- fire: start or pause, edge-triggered ---
         MOV @#JOY, R0
@@ -97,7 +124,16 @@ VS2:    CMP R1, #3
 VS3:    CMP R1, #4
         BNE VS9
         JSR PC, STLVL
-VS9:    MOV (SP)+, R5
+VS9:    ; any state that is not playing or dying keeps quiet
+        MOV STATE, R1
+        CMP R1, #2
+        BEQ VS10
+        CMP R1, #3
+        BEQ VS10
+        CLR R0
+        JSR PC, PLAY
+VS10:   CLR INVS
+VSOUT:  MOV (SP)+, R5
         MOV (SP)+, R4
         MOV (SP)+, R3
         MOV (SP)+, R2
@@ -151,19 +187,17 @@ SPP4:   ASR R0
         JSR PC, DRWPAC
         JSR PC, DRWGH
         JSR PC, ENEBLK
-        JSR PC, SNDRUN
-        ; the frightened warble, when nothing louder is playing
+        ; the running script, or the blue trill, or silence
+        JSR PC, SNDCUR
+        TST R0
+        BNE SPL1
         TST FRTCNT
-        BEQ SPL9
-        TST SNDP
-        BNE SPL9
-        MOV #500, R0
-        BIT #4, FCNT
-        BEQ SPW1
-        MOV #600, R0
-SPW1:   MOV #2, R1
-        JSR PC, TONE
-SPL9:   RTS PC
+        BEQ SPL1
+        MOV #NA4, R0
+        BIT #10, FCNT
+        BEQ SPL1
+        MOV #ND5, R0
+SPL1:   JMP PLAY
 
 ; ===================== pac =====================
 ; joystick -> wanted direction (0 up, 1 left, 2 down, 3 right);
@@ -697,8 +731,8 @@ SDI1:   DEC GENCNT
         JSR PC, ERSPAC
         BR SDI8
 SDI2:   JSR PC, DRWPAC
-SDI8:   JSR PC, SNDRUN
-        RTS PC
+SDI8:   JSR PC, SNDCUR
+        JMP PLAY
 SDI5:   JSR PC, ERSPAC
         DEC LIVES
         JSR PC, DRWLIV
@@ -1351,19 +1385,16 @@ RESETA: MOV #320, PACX      ; (13., 23.)
         RTS PC
 
 ; ===================== sound =====================
-; the speaker is one bit; the toggle rate is the pitch (see arkanoid.s)
-; TONE: R0 = delay count, R1 = half-periods. Clobbers R0-R3.
-TONE:   CLR R3
-TON1:   COM R3
-        MOV R3, @#SPK
-        MOV R0, R2
-TON2:   SOB R2, TON2
-        SOB R1, TON1
-        CLR @#SPK
-        RTS PC
+; The KW11-P does the toggling in the background; the frame handler
+; only decides *which* note sounds. Scripts are (note, frames) pairs,
+; note 0 is a rest, 177777 ends the script. SNDSET starts a jingle;
+; SNDIF only bothers if nothing is playing.
 
-; scripts are (delay, half-periods, frames) triples, 177777 ends one.
-; SNDSET starts a jingle; SNDIF only bothers if nothing is playing.
+; the metronome itself: half a period per interrupt, no registers
+PTICK:  COM SPKSH
+        MOV SPKSH, @#SPK
+        RTI
+
 SNDSET: MOV R0, SNDP
         CLR SNDF
         RTS PC
@@ -1372,23 +1403,40 @@ SNDIF:  TST SNDP
         MOV R0, SNDP
         CLR SNDF
 SIF9:   RTS PC
-SNDRUN: MOV SNDP, R5
-        BEQ SNR9
-        TST SNDF
-        BNE SNR1
-        MOV 4(R5), SNDF
-SNR1:   MOV (R5), R0
-        BEQ SNR2
-        MOV 2(R5), R1
-        JSR PC, TONE
-SNR2:   DEC SNDF
-        BNE SNR9
-        ADD #6, SNDP
+
+; SNDCUR: advance the running script; R0 = this frame's note (0 = none)
+SNDCUR: MOV SNDP, R5
+        BNE SCU1
+        CLR R0
+        RTS PC
+SCU1:   TST SNDF
+        BNE SCU2
+        MOV 2(R5), SNDF     ; a fresh note: latch its length
+SCU2:   MOV (R5), R4
+        DEC SNDF
+        BNE SCU3
+        ADD #4, SNDP        ; note over: step to the next pair
         MOV SNDP, R5
         CMP (R5), #177777
-        BNE SNR9
+        BNE SCU3
         CLR SNDP
-SNR9:   RTS PC
+SCU3:   MOV R4, R0
+        RTS PC
+
+; PLAY: sound note R0 (a half-period preset), or 0 for silence.
+; Writing the buffer mid-note only changes the *next* reload, so a
+; pitch change never resets the phase - no clicks, no 60 Hz hum.
+PLAY:   CMP R0, CURNT
+        BEQ PLY9
+        MOV R0, CURNT
+        BNE PLY1
+        CLR @#PCSR          ; stop the clock
+        CLR SPKSH
+        CLR @#SPK
+        RTS PC
+PLY1:   MOV R0, @#PCSB
+        MOV #103, @#PCSR    ; IE + the 125 kHz crystal
+PLY9:   RTS PC
 
 ; a 16-bit Galois shift register - the house pseudo-random
 RANDOM: MOV SEED, R0
@@ -1450,6 +1498,9 @@ SEED:   .WORD 30071
 WAKAF:  .WORD 0
 SNDP:   .WORD 0
 SNDF:   .WORD 0
+CURNT:  .WORD 0             ; the note sounding right now
+SPKSH:  .WORD 0             ; the metronome's speaker shadow
+INVS:   .WORD 0             ; frame handler re-entry latch
 DYFLG:  .WORD 0
 
 ; ===================== tables =====================
@@ -1479,26 +1530,12 @@ PTAB:   .WORD PACC, PACH0, PACW0, PACH0
         .WORD PACC, PACH2, PACW2, PACH2
         .WORD PACC, PACH3, PACW3, PACH3
 
-; sound scripts: (delay, half-periods, frames), 177777 ends.
-; Half-periods per frame are kept low on purpose: a frame is 16667
-; cycles and five sprites already claim half of it - the note's length
-; comes from its frame count, not from toggle density.
-WAKAA:  .WORD 300, 4, 2
-        .WORD 220, 4, 1
-        .WORD 177777
-WAKAB:  .WORD 220, 4, 2
-        .WORD 300, 4, 1
-        .WORD 177777
-EATSND: .WORD 170, 6, 3
-        .WORD 140, 6, 3
-        .WORD 120, 6, 3
-        .WORD 177777
-DTHSND: .WORD 200, 6, 10
-        .WORD 240, 6, 10
-        .WORD 300, 5, 10
-        .WORD 360, 4, 10
-        .WORD 440, 3, 12
-        .WORD 530, 3, 20
+; sound scripts: (note, frames) pairs, 0 is a rest, 177777 ends
+WAKAA:  .WORD NA5, 2, NE5, 1, 177777
+WAKAB:  .WORD NE5, 2, NA5, 1, 177777
+EATSND: .WORD NA4, 2, NCS5, 2, NE5, 2, NA5, 4, 177777
+DTHSND: .WORD NA5, 6, NG5, 6, NF5, 6, NE5, 6, ND5, 6, NC5, 6
+        .WORD NB4, 6, NA4, 10, 0, 4, NA3, 14
         .WORD 177777
 
 ; 5x7 digit font, bit 0 = leftmost pixel, 8 bytes per glyph

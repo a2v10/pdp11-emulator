@@ -196,6 +196,13 @@ describe('the ghosts', () => {
     expect(word('FRTCNT')).toBeGreaterThan(0);
     expect(word('GST')).toBe(3); // blinky is blue
     expect(m.memory.bytes[sym('MAP') + 3 * 28 + 1]).toBe(0); // the pill is gone
+    // the warble is a real tone off the KW11-P, not one click a frame:
+    // a 440/587 Hz trill means 14+ cone flips every frame, continuously
+    for (let i = 0; i < 5; i++) {
+      m.speaker.events.length = 0;
+      m.runFrame();
+      expect(m.speaker.events.length / 2).toBeGreaterThanOrEqual(10);
+    }
   });
 
   it('a blue ghost is worth 200 and turns into eyes', () => {

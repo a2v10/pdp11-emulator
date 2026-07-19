@@ -2,6 +2,7 @@ import { Bus } from './bus';
 import { CPU } from './cpu';
 import { Memory } from './memory';
 import { KW11 } from './devices/kw11';
+import { KW11P } from './devices/kw11p';
 import { Joystick } from './devices/joystick';
 import { Speaker } from './devices/speaker';
 import { CYCLES_PER_FRAME } from './constants';
@@ -15,6 +16,7 @@ export interface Snapshot {
   cycles: number;
   irqs: { vector: number; priority: number }[];
   kw11: number;
+  kw11p: { csr: number; preset: number; rem: number };
   joystick: number;
   speaker: number;
 }
@@ -25,13 +27,16 @@ export class Machine {
   readonly bus = new Bus(this.memory);
   readonly cpu = new CPU(this.bus);
   readonly kw11: KW11;
+  readonly kw11p: KW11P;
   readonly joystick = new Joystick();
   readonly speaker: Speaker;
 
   constructor() {
     this.kw11 = new KW11((vector, priority) => this.cpu.requestInterrupt(vector, priority));
+    this.kw11p = new KW11P((vector, priority) => this.cpu.requestInterrupt(vector, priority));
     this.speaker = new Speaker(() => this.cpu.cycles);
     this.bus.register(this.kw11);
+    this.bus.register(this.kw11p);
     this.bus.register(this.joystick);
     this.bus.register(this.speaker);
   }
@@ -58,9 +63,12 @@ export class Machine {
   /** Run until the cycle budget is spent or the CPU halts. Returns cycles used. */
   run(maxCycles: number): number {
     const cpu = this.cpu;
+    const pclk = this.kw11p;
     let used = 0;
     while (used < maxCycles && !cpu.halted) {
-      used += cpu.step();
+      const spent = cpu.step();
+      used += spent;
+      pclk.advance(spent);
     }
     return used;
   }
@@ -83,6 +91,7 @@ export class Machine {
       cycles: this.cpu.cycles,
       irqs: this.cpu.snapshotIrqs(),
       kw11: this.kw11.lks,
+      kw11p: { csr: this.kw11p.csr, preset: this.kw11p.preset, rem: this.kw11p.rem },
       joystick: this.joystick.state,
       speaker: this.speaker.level,
     };
@@ -97,6 +106,9 @@ export class Machine {
     this.cpu.cycles = s.cycles;
     this.cpu.restoreIrqs(s.irqs);
     this.kw11.lks = s.kw11;
+    this.kw11p.csr = s.kw11p.csr;
+    this.kw11p.preset = s.kw11p.preset;
+    this.kw11p.rem = s.kw11p.rem;
     this.joystick.state = s.joystick;
     this.speaker.level = s.speaker;
     this.speaker.events.length = 0;
