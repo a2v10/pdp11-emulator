@@ -848,7 +848,7 @@ GIMG:   MOV GIX, R5
         RTS PC
 GIM1:   CMP R0, #3
         BNE GINRM
-        CMP FRTCNT, #170    ; 120.: the warning flash
+        CMP FRTCNT, #74     ; the last second: the warning flash
         BGT GIFR
         BIT #10, FCNT
         BNE GINRM
@@ -1488,7 +1488,7 @@ MODE:   .WORD 0             ; 0 scatter, 1 chase
 MODP:   .WORD MODTAB
 MODCNT: .WORD 644           ; 420.: the first scatter
 FRTCNT: .WORD 0
-FRTDUR: .WORD 550           ; 360.: 6 seconds of fear
+FRTDUR: .WORD 310           ; 200.: 3.3 seconds of fear
 EATIX:  .WORD 0
 EVIS:   .WORD 1
 EPTR:   .WORD 0
