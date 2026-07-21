@@ -79,6 +79,58 @@ describe('arkanoid', () => {
     expect(score).toBe(broken * 10);
   });
 
+  it('the serenade is a real tone off the KW11-P, and serving cuts it', () => {
+    const { m } = boot();
+    for (let i = 0; i < 10; i++) m.runFrame();
+    // ~500 Hz means hundreds of cone flips over a dozen frames; one
+    // click per frame (the old busy-loop's failure mode) would be 12
+    m.speaker.events.length = 0;
+    for (let i = 0; i < 12; i++) m.runFrame();
+    expect(m.speaker.events.length / 2).toBeGreaterThan(60);
+    m.joystick.state = JOY_FIRE;
+    m.runFrame();
+    m.joystick.state = 0;
+    for (let i = 0; i < 20; i++) m.runFrame(); // let the serve blip end
+    m.speaker.events.length = 0;
+    for (let i = 0; i < 10; i++) m.runFrame();
+    expect(m.speaker.events.length).toBe(0); // the game itself is quiet
+  });
+
+  it('the tune plays on through a repaint that outlasts the frame', () => {
+    const { m, sym } = boot();
+    for (let i = 0; i < 5; i++) m.runFrame(); // the serenade is running
+    m.bus.writeWord(sym('STUCK'), 0);
+    m.bus.writeWord(sym('BRKCNT'), 0); // field cleared: INITBR repaints 90.
+    const notes = new Set<number>(); //  bricks, which takes several frames
+    for (let i = 0; i < 30; i++) {
+      m.runFrame();
+      notes.add(m.bus.readWord(sym('CURNT')));
+    }
+    expect(m.bus.readWord(sym('BRKCNT'))).toBe(90);
+    expect(m.bus.readWord(sym('INVS'))).toBe(0); // the latch let go again
+    expect(m.cpu.halted).toBe(false);
+    expect(notes.size).toBeGreaterThan(2); // the clock kept the music going
+  });
+
+  it('the last life buzzes its way down, and only then does it HALT', () => {
+    const { m, sym } = boot();
+    for (let i = 0; i < 5; i++) m.runFrame();
+    m.bus.writeWord(sym('LIVES'), 1);
+    m.bus.writeWord(sym('STUCK'), 0); // drop the ball past the paddle
+    m.bus.writeWord(sym('BALLX'), 0o20);
+    m.bus.writeWord(sym('BALLY'), 0o756);
+    m.bus.writeWord(sym('BDY'), 2);
+    for (let i = 0; i < 10 && !m.cpu.halted; i++) m.runFrame();
+    expect(m.bus.readWord(sym('OVER'))).toBeGreaterThan(0);
+    expect(m.cpu.halted).toBe(false); // the descent is still sounding
+    m.speaker.events.length = 0;
+    for (let i = 0; i < 8; i++) m.runFrame();
+    expect(m.speaker.events.length / 2).toBeGreaterThan(20);
+    for (let i = 0; i < 60 && !m.cpu.halted; i++) m.runFrame();
+    expect(m.cpu.halted).toBe(true);
+    expect(m.speaker.level).toBe(0); // the cone is left at rest
+  });
+
   it('loses a life when the paddle stays in the corner', () => {
     const { m, sym } = boot();
     for (let i = 0; i < 5; i++) m.runFrame();

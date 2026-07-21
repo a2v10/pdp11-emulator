@@ -12,8 +12,8 @@ the tabs above the screen.
 **Live: https://pdp11-arkanoid.azurewebsites.net/**
 
 Controls — Arkanoid: ← → move the paddle, Space (or ↑) launches the ball.
-Tetris: ← → move, ↑ / Space rotate, ↓ soft-drop. Pac-Man: arrows steer,
-Space starts and pauses. On a phone an on-screen joystick appears. Pause
+Tetris: Space starts the game and pauses it again, ← → move, ↑ rotates,
+↓ hard-drops. Pac-Man: arrows steer, Space starts and pauses. On a phone an on-screen joystick appears. Pause
 the emulator to inspect the CPU registers mid-game.
 
 Tetris on a PDP-11 is no accident: the original was written by Alexey
@@ -50,12 +50,16 @@ Pixel (x, y): byte `060000 + (y << 6) + (x >> 3)`, bit `x & 7`.
 |---------|--------|-------------|
 | 177544  | Speaker | bit 0 is the cone position, Sinclair Spectrum style. There is no tone generator: the program toggles the bit and the toggle rate *is* the pitch. Music costs CPU cycles, like it did in 1982. |
 | 177546  | KW11 line clock | bit 6 — interrupt enable, bit 7 — tick flag. Ticks at 60 Hz, interrupts through vector 100 at priority 6. This is the game's "vsync". |
-| 172540–172544 | KW11-P programmable clock | repeated-interval countdown: rate select (bits 0–1: 100 kHz, 10 kHz, or the external input — wired here to a 125 kHz crystal), interrupt enable (bit 6), done (bit 7); vector 104. Pac-Man's sound engine: a note's half-period goes into the count-set buffer (A₄ = 142 → 440.1 Hz) and every interrupt flips the speaker cone — a background tone that costs the CPU only its interrupts, which is why the frame handler runs at priority 4 there. Writing the buffer mid-note changes pitch without resetting the phase. |
+| 172540–172544 | KW11-P programmable clock | repeated-interval countdown: rate select (bits 0–1: 100 kHz, 10 kHz, or the external input — wired here to a 125 kHz crystal), interrupt enable (bit 6), done (bit 7); vector 104. The sound engine of all three games: a note's half-period goes into the count-set buffer (A₄ = 142 → 440.1 Hz) and every interrupt flips the speaker cone — a tone that costs the CPU only its interrupts and goes on sounding across frame boundaries, which is why their frame handlers run at priority 4 and latch against re-entry. Writing the buffer mid-note changes pitch without resetting the phase. |
 | 177570  | Joystick | read-only: bit 0 — left, bit 1 — right, bit 2 — fire, bit 3 — down, bit 4 — up. A mask of the *currently held* buttons. |
 
-The game uses the speaker for bounce/brick effects and plays Korobeiniki
-while the ball waits on the paddle — the tune Tetris made famous, and
-Tetris was written on an Elektronika-60, a Soviet PDP-11 clone.
+Every game drives the speaker through the KW11-P, so nothing busy-waits
+on a beep any more: a script is a list of (preset, frames) pairs, an
+effect and a tune run at once, and the effect owns the cone while the
+tune counts on underneath. Arkanoid plays *In the Hall of the Mountain
+King* while the ball waits on the paddle — twice round, the second time
+an octave up and faster. Tetris waits with Korobeiniki, the tune it made
+famous: Tetris was written on an Elektronika-60, a Soviet PDP-11 clone.
 
 ## Modules
 
@@ -91,7 +95,8 @@ Tetris was written on an Elektronika-60, a Soviet PDP-11 clone.
   `programs/tetris.s` — Tetris: a 10×20 well of 24×24 cells, seven pieces ×
   four rotations packed as 4×4-box cell tables, the board as 20 row bitmasks,
   full-line clears with BCD scoring, levels that speed up gravity, an LFSR
-  piece bag, delayed auto-shift, and one-bit sound. No multiply or divide —
+  piece bag, delayed auto-shift, and a waiting screen with the tune on the
+  programmable clock. No multiply or divide —
   the whole layout is powers of two, so addressing stays additive.
   `programs/pacman.s` — Pac-Man: a 28×31-tile maze drawn in the source as a
   picture, in the machine's own box-drawing characters — one character per

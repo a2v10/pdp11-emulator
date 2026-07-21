@@ -3,11 +3,11 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { assemble } from '../src/asm/assembler';
 import { Machine } from '../src/core/machine';
-import { JOY_DOWN, JOY_LEFT } from '../src/core/constants';
+import { JOY_DOWN, JOY_FIRE, JOY_LEFT, JOY_UP } from '../src/core/constants';
 
 const source = readFileSync(join(__dirname, '../programs/tetris.s'), 'utf8');
 
-function boot() {
+function boot(start = true) {
   const r = assemble(source);
   expect(r.errors).toEqual([]);
   const m = new Machine();
@@ -19,8 +19,15 @@ function boot() {
     if (v === undefined) throw new Error(`no symbol ${name}`);
     return v;
   };
-  // run START through to the WAIT idle loop
+  // run START through to the WAIT idle loop; the game opens on the
+  // waiting screen with Korobeiniki playing, and fire starts it
   m.runFrame();
+  if (start) {
+    m.joystick.state = JOY_FIRE;
+    m.runFrame();
+    m.joystick.state = 0;
+    m.runFrame();
+  }
   return { m, sym };
 }
 
@@ -86,6 +93,42 @@ describe('tetris', () => {
     let col0 = false;
     for (let r = 0; r < 20; r++) if (row(m, sym('BOARD'), r) & 1) col0 = true;
     expect(col0).toBe(true);
+  });
+
+  it('up rotates the piece, one turn per press', () => {
+    const { m, sym } = boot();
+    const CURR = sym('CURR');
+    expect(m.bus.readWord(CURR)).toBe(0);
+    step(m, 4, JOY_UP); // held: still a single turn
+    expect(m.bus.readWord(CURR)).toBe(1);
+    step(m, 1);
+    step(m, 1, JOY_UP);
+    expect(m.bus.readWord(CURR)).toBe(2);
+  });
+
+  it('waits with the tune playing until fire starts the game', () => {
+    const { m, sym } = boot(false);
+    step(m, 60); // a second on the waiting screen
+    expect(m.bus.readWord(sym('CURY'))).toBe(0); // nothing falls yet
+    // Korobeiniki off the KW11-P: hundreds of cone flips, not one a frame
+    m.speaker.events.length = 0;
+    step(m, 12);
+    expect(m.speaker.events.length / 2).toBeGreaterThan(60);
+    step(m, 1, JOY_FIRE); // start
+    step(m, 1);
+    expect(m.bus.readWord(sym('RUN'))).toBe(1);
+    m.speaker.events.length = 0;
+    step(m, 60); // one gravity step at level 0
+    expect(m.speaker.events.length).toBe(0); // play is silent
+    expect(m.bus.readWord(sym('CURY'))).toBeGreaterThan(0);
+  });
+
+  it('a locked piece thuds without costing the frame a cycle', () => {
+    const { m } = boot();
+    m.speaker.events.length = 0;
+    drop(m); // lands and locks
+    step(m, 4);
+    expect(m.speaker.events.length / 2).toBeGreaterThan(10);
   });
 
   it('clears full lines and scores them', () => {

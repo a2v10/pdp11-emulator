@@ -8,7 +8,7 @@ import pacmanSource from '../../programs/pacman.s?raw';
 
 const PROGRAMS = {
   arkanoid: { label: 'Arkanoid', source: arkanoidSource, hint: '← → — paddle · space / ↑ — launch' },
-  tetris: { label: 'Tetris', source: tetrisSource, hint: '← → — move · ↑ / space — rotate · ↓ — drop' },
+  tetris: { label: 'Tetris', source: tetrisSource, hint: 'space — start / pause · ← → — move · ↑ — rotate · ↓ — drop' },
   pacman: { label: 'Pac-Man', source: pacmanSource, hint: '← → ↑ ↓ — move · space — start' },
 } as const;
 type Tab = keyof typeof PROGRAMS;

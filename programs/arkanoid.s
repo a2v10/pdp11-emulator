@@ -16,10 +16,35 @@
 FB      = 60000
 LKS     = 177546            ; KW11 line clock: the 60 Hz game timer
 JOY     = 177570            ; bit 0 - left, bit 1 - right, bit 2 - fire
-SPK     = 177544            ; speaker: bit 0 is the cone, toggle it for sound
+SPK     = 177544            ; speaker: bit 0 is the cone
+PCSR    = 172540            ; KW11-P clock: rate select bits 0-1, IE bit 6
+PCSB    = 172542            ; KW11-P count-set buffer: the half-period
 
-        . = 100             ; clock interrupt vector
-        .WORD VSYNC, 340
+; Sound rides the KW11-P programmable clock: its external input is wired
+; to a 125 kHz crystal, the preset is a note's half-period in crystal
+; ticks, and every interrupt through vector 104 flips the speaker cone.
+; Nothing busy-waits on the speaker any more, so a note goes on sounding
+; while the game runs - which is why the frame handler drops to
+; priority 4: the metronome has to be able to cut in.
+; Note table: preset = 125000 / (2 * freq); A4 = 142. -> 440.1 Hz.
+NA4     = 142.
+NB4     = 127.
+NC5     = 119.
+ND5     = 106.
+NE5     = 95.
+NG5     = 80.
+NA5     = 71.
+NB5     = 63.
+NC6     = 60.
+ND6     = 53.
+NE6     = 47.
+NG6     = 40.
+NA6     = 36.
+
+        . = 100             ; line clock: the frame handler
+        .WORD VSYNC, 200    ; priority 4 - the music clock outranks it
+        . = 104             ; KW11-P: half a period per interrupt
+        .WORD PTICK, 340
 
         . = 1000
 START:  MOV #60000, SP
@@ -32,7 +57,13 @@ IDLE:   WAIT                ; the whole game runs in the frame handler
         BR IDLE
 
 ; ===================== frame handler =====================
-VSYNC:  INC FCNT
+; At priority 4 a slow frame (laying the bricks again) can be caught by
+; the next tick - the latch makes the late tick simply drop out.
+VSYNC:  TST INVS
+        BEQ VSGO
+        RTI
+VSGO:   MOV #1, INVS
+        INC FCNT
         JSR PC, ERSBAL
         JSR PC, ERSPAD
 
@@ -62,6 +93,7 @@ VF1:    TST PREVF
         TST STUCK
         BEQ VF2
         CLR STUCK           ; serve!
+        JSR PC, MUSOFF      ; the serenade is over
         JSR PC, SSERVE
         MOV #-2, BDY
         MOV #2, BDX
@@ -72,7 +104,7 @@ VF2:
         TST STUCK
         BEQ PHYS
         JSR PC, BALPAD      ; the ball rides on the paddle
-        JSR PC, MUSIC       ; a serenade while we wait
+        JSR PC, MUSGO       ; a serenade while we wait
         JMP DRAW            ; too far for a branch
 
         ; --- physics, X axis ---
@@ -141,7 +173,7 @@ YPAD:   ; --- paddle bounce: moving down and new y in [492., 496.] ---
         CMP BALLX, R3
         BGT YMOVE           ; ball is right of the paddle
         NEG BDY             ; bounce; the hit position picks the angle
-        JSR PC, SPADL       ; (preserves R2 - the paddle x is still live)
+        JSR PC, SPADL       ; (only R0 dies - the paddle x in R2 is live)
         MOV BALLX, R3
         ADD #2, R3
         SUB R2, R3          ; 0..47 across the paddle
@@ -169,6 +201,15 @@ YDONE:
 
 DRAW:   JSR PC, DRWPAD
         JSR PC, DRWBAL
+        JSR PC, SNDFRM
+        TST OVER            ; game over: let the buzz play itself out
+        BEQ DRW9
+        DEC OVER
+        BNE DRW9
+        CLR @#PCSR          ; the machine goes quiet, then stops
+        CLR @#SPK
+        HALT
+DRW9:   CLR INVS
         RTI
 
 ; ===================== game subroutines =====================
@@ -184,15 +225,16 @@ BALPAD: MOV PADB, R0
         RTS PC
 
 ; ---- LOST: a life is gone ----
-LOST:   JSR PC, SLOST       ; the dying buzz (the game freezes for it,
-                            ; six frames - the Spectrum did the same)
-        DEC LIVES
+LOST:   DEC LIVES
         JSR PC, DRWLIV
+        MOV #1, STUCK
         TST LIVES
-        BGT LO1
-        HALT                ; game over
-LO1:    MOV #1, STUCK
-        JSR PC, BALPAD
+        BLE LO2
+        JSR PC, SLOST       ; the dying buzz - the clock plays it in the
+        JSR PC, BALPAD      ; background now, the game no longer freezes
+        RTS PC
+LO2:    JSR PC, SOVER       ; last life: the descent, and then silence
+        MOV #44., OVER      ; exactly as long as the script
         RTS PC
 
 ; ---- CHKBRK: probe point (R0 = x, R1 = y). If a live brick is
@@ -239,64 +281,100 @@ CBNO:   CLR R0
         RTS PC
 
 ; ===================== sound =====================
-; The speaker is one bit: the program toggles the cone and the toggle
-; rate is the pitch - Spectrum-style, there is no tone generator.
-; One half-period costs 3*R0 + 10 cycles on our ~1 MHz machine.
+; Nothing here toggles the cone by hand: the KW11-P does it, half a
+; period per interrupt, so a note keeps sounding across frame borders
+; and the game never has to stand still for a beep.
+;
+; A script is a list of (preset, frames) pairs, preset 0 is a rest and
+; 177777 ends it. Two scripts run at once - an effect and the tune. The
+; effect owns the speaker while it lasts; the tune counts on underneath,
+; so it comes back on the beat instead of restarting.
 
-; ---- TONE: square wave. R0 = delay count (pitch), R1 = number of
-;      half-periods (length). Clobbers R0-R3. ----
-TONE:   CLR R3
-TON1:   COM R3
-        MOV R3, @#SPK
-        MOV R0, R2
-TON2:   SOB R2, TON2
-        SOB R1, TON1
+; the metronome itself: half a period per interrupt, no registers
+PTICK:  COM SPKSH
+        MOV SPKSH, @#SPK
+        RTI
+
+; ---- SFXSET: R0 -> an effect script; it takes the speaker at once ----
+SFXSET: MOV R0, SFXP
+        CLR SFXF
+        RTS PC
+
+; ---- effects: each is a script, so they cost the frame nothing ----
+SWALL:  MOV #SNWALL, R0
+        BR SFXSET
+SBRICK: MOV #SNBRIK, R0
+        BR SFXSET
+SPADL:  MOV #SNPADL, R0
+        BR SFXSET
+SSERVE: MOV #SNSERV, R0
+        BR SFXSET
+SLOST:  MOV #SNLOST, R0
+        BR SFXSET
+SOVER:  MOV #SNOVER, R0
+        BR SFXSET
+
+; ---- MUSGO / MUSOFF: the tune plays only while the ball waits, and it
+;      always starts from the top - but never on top of an effect ----
+MUSGO:  TST SFXP
+        BNE MGO9            ; let the dying buzz finish first
+        TST MUSP
+        BNE MGO9
+        MOV #MTUNE, MUSP
+        CLR MUSF
+MGO9:   RTS PC
+MUSOFF: CLR MUSP
+        RTS PC
+
+; ---- SNDSTP: one frame of the script whose (pointer, timer) pair sits
+;      at R5; R1 = where to restart when it ends (0 = just stop).
+;      Returns R0 = the note to sound this frame. Clobbers R0-R2. ----
+SNDSTP: MOV (R5), R2        ; R2 -> the current (preset, frames) pair
+        BNE SST1
+        CLR R0              ; no script running
+        RTS PC
+SST1:   TST 2(R5)
+        BNE SST2
+        MOV 2(R2), 2(R5)    ; a fresh note: latch its length
+SST2:   MOV (R2), R0
+        DEC 2(R5)
+        BNE SST9
+        CLR R0              ; a note's last frame is silent: that gap is
+                            ; what separates two equal notes in a row
+        ADD #4, R2          ; and the script steps on
+        MOV R2, (R5)
+        CMP (R2), #177777
+        BNE SST9
+        MOV R1, (R5)        ; the end: da capo, or stop
+SST9:   RTS PC
+
+; ---- SNDFRM: one frame of sound, effect over tune ----
+SNDFRM: MOV #MUSP, R5
+        MOV #MTUNE, R1
+        JSR PC, SNDSTP      ; the tune keeps time even while muted
+        MOV R0, R3
+        MOV #SFXP, R5
+        CLR R1
+        JSR PC, SNDSTP
+        TST R0
+        BNE SFR9            ; an effect: it wins the speaker
+        MOV R3, R0
+SFR9:   ; fall through to PLAY
+
+; ---- PLAY: sound note R0 (a half-period preset), 0 for silence.
+;      Writing the buffer mid-note only changes the next reload, so a
+;      pitch change never resets the phase - no clicks, no 60 Hz hum. ----
+PLAY:   CMP R0, CURNT
+        BEQ PLY9
+        MOV R0, CURNT
+        BNE PLY1
+        CLR @#PCSR          ; stop the clock
+        CLR SPKSH
         CLR @#SPK
         RTS PC
-
-; ---- effect presets: pitch and length for TONE ----
-SWALL:  MOV #243, R0        ; 1 kHz, 2 ms: the wall
-        MOV #4, R1
-        BR TONE
-SBRICK: MOV #145, R0        ; 1.6 kHz, 3 ms: a brick dies
-        MOV #12, R1
-        BR TONE
-SPADL:  MOV R2, -(SP)       ; the caller's R2 is live
-        MOV #353, R0        ; 700 Hz, 3 ms: the paddle
-        MOV #4, R1
-        JSR PC, TONE
-        MOV (SP)+, R2
-        RTS PC
-SSERVE: MOV #210, R0        ; 1.2 kHz, 5 ms: serve
-        MOV #14, R1
-        BR TONE
-SLOST:  MOV #2124, R0       ; 150 Hz, 100 ms: the ball is gone
-        MOV #36, R1
-        BR TONE
-
-; ---- MUSIC: one frame's slice of the tune, called while the ball
-;      waits on the paddle. A note is (delay count, half-periods per
-;      frame, frames); delay 0 is a rest, 177777 loops the tune.
-;      The last two frames of a note are silent - that gap is what
-;      separates repeated notes. Clobbers R0-R3, R5. ----
-MUSIC:  TST MTIME
-        BGT MUS1            ; the current note still sounds
-        MOV MNOTE, R5       ; it ended: advance
-        ADD #6, R5
-        TST (R5)
-        BGE MUS0
-        MOV #MTUNE, R5      ; da capo
-MUS0:   MOV R5, MNOTE
-        MOV 4(R5), MTIME
-MUS1:   DEC MTIME
-        MOV MNOTE, R5
-        MOV (R5), R0
-        BEQ MUS9            ; a rest
-        CMP MTIME, #2
-        BLT MUS9            ; the gap between notes
-        MOV 2(R5), R1
-        JSR PC, TONE
-MUS9:   RTS PC
+PLY1:   MOV R0, @#PCSB
+        MOV #103, @#PCSR    ; IE + the 125 kHz crystal
+PLY9:   RTS PC
 
 ; ---- BRKADR: R0 = row, R1 = col -> R2 = brick top-left address ----
 BRKADR: MOV R0, R2
@@ -505,38 +583,97 @@ LIVES:  .WORD 3
 BRKCNT: .WORD 132           ; 90.
 PREVF:  .WORD 0
 FCNT:   .WORD 0
-MNOTE:  .WORD MTUNE         ; the note now playing
-MTIME:  .WORD 24            ; frames it has left (the first note's length)
+SFXP:   .WORD 0             ; the effect script now running
+SFXF:   .WORD 0             ; frames left in its note (must follow SFXP)
+MUSP:   .WORD 0             ; the tune, or 0 while it is off
+MUSF:   .WORD 0             ; (must follow MUSP)
+CURNT:  .WORD 0             ; the note sounding right now
+SPKSH:  .WORD 0             ; the metronome's speaker shadow
+INVS:   .WORD 0             ; frame handler re-entry latch
+OVER:   .WORD 0             ; frames left before the machine stops
 SCORE:  .BYTE 0, 0, 0, 0    ; four decimal digits
 
 ; masks of a 4-pixel run at offset x&7 inside a byte pair
 MASKL:  .BYTE 17, 36, 74, 170, 360, 340, 300, 200
 MASKR:  .BYTE 0, 0, 0, 0, 0, 1, 3, 7
 
-; Korobeiniki - what else do you play on a PDP-11? Tetris was written
-; on an Elektronika-60, a Soviet PDP-11 clone. A note is (delay count,
-; half-periods per frame, frames): quarter = 24, eighth = 12 frames.
-MTUNE:  .WORD 372, 17, 24   ; E5
-        .WORD 516, 13, 12   ; B4
-        .WORD 473, 14, 12   ; C5
-        .WORD 431, 16, 24   ; D5
-        .WORD 473, 14, 12   ; C5
-        .WORD 516, 13, 12   ; B4
-        .WORD 567, 12, 24   ; A4
-        .WORD 567, 12, 12   ; A4
-        .WORD 473, 14, 12   ; C5
-        .WORD 372, 17, 24   ; E5
-        .WORD 431, 16, 12   ; D5
-        .WORD 473, 14, 12   ; C5
-        .WORD 516, 13, 36   ; B4, dotted
-        .WORD 473, 14, 12   ; C5
-        .WORD 431, 16, 24   ; D5
-        .WORD 372, 17, 24   ; E5
-        .WORD 473, 14, 24   ; C5
-        .WORD 567, 12, 24   ; A4
-        .WORD 567, 12, 24   ; A4
-        .WORD 0, 0, 36      ; a breath before da capo
-        .WORD 177777        ; end of tune
+; ---- effect scripts: (preset, frames), 177777 ends one ----
+SNWALL: .WORD 62., 3.       ; 1 kHz: the wall
+        .WORD 177777
+SNBRIK: .WORD 39., 3.       ; 1.6 kHz: a brick dies
+        .WORD 177777
+SNPADL: .WORD 89., 3.       ; 700 Hz: the paddle
+        .WORD 177777
+SNSERV: .WORD 52., 5.       ; 1.2 kHz: serve
+        .WORD 177777
+SNLOST: .WORD 417., 24.     ; 150 Hz: the ball is gone
+        .WORD 177777
+SNOVER: .WORD 417., 8.      ; and on the last life it keeps falling:
+        .WORD 496., 8.      ; 150, 126, 100, 75 Hz - 44. frames, which
+        .WORD 625., 12.     ; is what OVER counts down before the HALT
+        .WORD 833., 16.
+        .WORD 177777
+
+; In the Hall of the Mountain King (Grieg, 1875 - the same year this
+; machine would have been new). The trolls come round twice: first at
+; an eighth = 12 frames, then an octave up and half again as fast, and
+; then from the top - the ball has been sitting on that paddle long
+; enough. A note is (preset, frames); the last frame of each is the
+; release, which is what tells two equal notes apart.
+MTUNE:  .WORD NA4, 12.
+        .WORD NB4, 12.
+        .WORD NC5, 12.
+        .WORD ND5, 12.
+        .WORD NE5, 12.
+        .WORD NC5, 12.
+        .WORD NE5, 24.
+        .WORD ND5, 12.
+        .WORD NB4, 12.
+        .WORD ND5, 12.
+        .WORD NC5, 12.
+        .WORD NA4, 12.
+        .WORD NC5, 36.
+        .WORD NA4, 12.
+        .WORD NB4, 12.
+        .WORD NC5, 12.
+        .WORD ND5, 12.
+        .WORD NE5, 12.
+        .WORD NC5, 12.
+        .WORD NE5, 24.
+        .WORD NA5, 12.
+        .WORD NG5, 12.
+        .WORD NE5, 12.
+        .WORD NC5, 12.
+        .WORD ND5, 12.
+        .WORD NE5, 36.
+        .WORD NA5, 8.       ; da capo, an octave up and quicker
+        .WORD NB5, 8.
+        .WORD NC6, 8.
+        .WORD ND6, 8.
+        .WORD NE6, 8.
+        .WORD NC6, 8.
+        .WORD NE6, 16.
+        .WORD ND6, 8.
+        .WORD NB5, 8.
+        .WORD ND6, 8.
+        .WORD NC6, 8.
+        .WORD NA5, 8.
+        .WORD NC6, 24.
+        .WORD NA5, 8.
+        .WORD NB5, 8.
+        .WORD NC6, 8.
+        .WORD ND6, 8.
+        .WORD NE6, 8.
+        .WORD NC6, 8.
+        .WORD NE6, 16.
+        .WORD NA6, 8.
+        .WORD NG6, 8.
+        .WORD NE6, 8.
+        .WORD NC6, 8.
+        .WORD ND6, 8.
+        .WORD NE6, 24.
+        .WORD 0, 24.        ; a breath, and the trolls start over
+        .WORD 177777
 
 ; 5x7 digit font, bit 0 = leftmost pixel, 8 bytes per glyph
 FONT:   .BYTE 16, 21, 21, 21, 21, 21, 16, 0     ; 0

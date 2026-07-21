@@ -9,14 +9,19 @@
 ;   A cell looks like an Arkanoid brick: filled, a 1px grid gap on the
 ;   right and bottom, and a small 3px hole punched in the centre.
 ;
-; Controls: left/right move, fire (space/up) rotates, down hard-drops
-; (one press drops the piece all the way and locks it).
+; Controls: fire (space) starts the game and pauses it again, left/right
+; move, up rotates, down hard-drops (one press drops the piece all the
+; way and locks it). While the game waits, Korobeiniki plays and the
+; piece blinks.
 ;
 ; Devices:
 ;   LKS 177546 - KW11 line clock, the 60 Hz "vsync"; the whole game
 ;     lives in the clock interrupt handler.
-;   JOY 177570 - bit 0 left, bit 1 right, bit 2 fire, bit 3 down.
-;   SPK 177544 - one-bit speaker; we toggle it for effects.
+;   JOY 177570 - bit 0 left, bit 1 right, bit 2 fire, bit 3 down,
+;     bit 4 up.
+;   SPK 177544 - one-bit speaker, bit 0 is the cone.
+;   KW11-P 172540 - the programmable clock; it does the toggling, so
+;     music and effects cost the frame nothing. See the sound section.
 ;
 ; The board is 20 words, one per row, bit c = column c occupied.
 ; Pieces are tables of four cells in a 4x4 box; a cell byte packs
@@ -27,13 +32,31 @@ FB      = 60000
 LKS     = 177546
 JOY     = 177570
 SPK     = 177544
+PCSR    = 172540           ; KW11-P clock: rate select bits 0-1, IE bit 6
+PCSB    = 172542           ; KW11-P count-set buffer: the half-period
 
 SCBASE  = 70060            ; score digits:  x=384., y=64.
 LNBASE  = 100060           ; line counter:  x=384., y=128.
 LVBASE  = 110060           ; level digit:   x=384., y=192.
 
-        . = 100            ; clock interrupt vector
-        .WORD VSYNC, 340
+; Note table: the KW11-P's external input is a 125 kHz crystal, so a
+; preset is a half-period in crystal ticks: 125000 / (2 * freq).
+; A4 = 142. -> 440.1 Hz, and the whole scale lands within a few cents.
+NA4     = 142.
+NB4     = 127.
+NC5     = 119.
+ND5     = 106.
+NE5     = 95.
+NF5     = 89.
+NG5     = 80.
+NA5     = 71.
+NC6     = 60.
+NE6     = 47.
+
+        . = 100            ; line clock: the frame handler
+        .WORD VSYNC, 200   ; priority 4 - the music clock outranks it
+        . = 104            ; KW11-P: half a period per interrupt
+        .WORD PTICK, 340
 
         . = 1000
 START:  MOV #60000, SP
@@ -50,12 +73,45 @@ IDLE:   WAIT
         BR IDLE
 
 ; ===================== frame handler =====================
-VSYNC:  INC FCNT
+; At priority 4 a slow frame (repainting the whole well after a clear)
+; can be caught by the next tick - the latch drops the late one.
+VSYNC:  TST INVS
+        BEQ VSGO
+        RTI
+VSGO:   MOV #1, INVS
+        INC FCNT
         JSR PC, ERASEP     ; lift the active piece off the screen
+        JSR PC, PAUSEK     ; up: start the game, or pause it again
+        TST RUN
+        BEQ VSWAIT
         JSR PC, INPUT      ; rotate + horizontal (with DAS)
         JSR PC, GRAV       ; gravity; may lock + spawn + clear lines
         JSR PC, DRAWP      ; put the active piece back down
+        BR VSSND
+VSWAIT: JSR PC, MUSGO      ; waiting: the tune plays, the piece blinks
+        BIT #20, FCNT      ; 16. frames on, 16. off
+        BEQ VSSND
+        JSR PC, DRAWP
+VSSND:  JSR PC, SNDFRM
+        CLR INVS
         RTI
+
+; ---- PAUSEK: fire starts the game and stops it again, edge-triggered ----
+PAUSEK: MOV @#JOY, R0
+        BIT #4, R0
+        BNE PK1
+        CLR PREVP
+        RTS PC
+PK1:    TST PREVP
+        BNE PK9
+        MOV #1, PREVP
+        TST RUN
+        BNE PK2
+        MOV #1, RUN        ; go: the tune gets out of the way
+        JSR PC, MUSOFF
+        RTS PC
+PK2:    CLR RUN            ; and on the next press it comes back
+PK9:    RTS PC
 
 ; ===================== input =====================
 INPUT:  MOV @#JOY, R0
@@ -69,14 +125,14 @@ INPUT:  MOV @#JOY, R0
         JSR PC, HARDDROP   ; lands, locks and spawns the next piece
         RTS PC
 INDU:   CLR PREVD
-INRJ:   ; --- rotate, edge-triggered on the fire button (or up) ---
-        BIT #24, R0
+INRJ:   ; --- rotate, edge-triggered on up ---
+        BIT #20, R0
         BNE INRF
-        CLR PREVF
+        CLR PREVR
         BR INHZ
-INRF:   TST PREVF
+INRF:   TST PREVR
         BNE INHZ
-        MOV #1, PREVF
+        MOV #1, PREVR
         MOV CURX, TX
         MOV CURY, TY
         MOV CURR, R1
@@ -192,7 +248,9 @@ LSSP:   JSR PC, SPAWN
         TST R0
         BNE LSOVER
         RTS PC
-LSOVER: HALT               ; game over
+LSOVER: CLR @#PCSR         ; game over: the machine goes quiet,
+        CLR @#SPK
+        HALT               ; and then it stops
 
 ; ===================== collision =====================
 ; ---- CHKPOS: does piece CURP, rotation TR at (TX,TY) collide with a
@@ -470,24 +528,93 @@ EC1:    CLRB (R2)
         RTS PC
 
 ; ===================== sound =====================
-; The speaker is one bit; the toggle rate is the pitch, Spectrum-style.
-TONE:   CLR R3
-TON1:   COM R3
-        MOV R3, @#SPK
-        MOV R0, R2
-TON2:   SOB R2, TON2
-        SOB R1, TON1
+; The speaker is one bit, but nothing here toggles it by hand: the
+; KW11-P does, half a period per interrupt, so a note keeps sounding
+; across frame borders and no effect costs the frame a single cycle.
+;
+; A script is a list of (preset, frames) pairs, preset 0 is a rest and
+; 177777 ends it. Two run at once - an effect and the tune. The effect
+; owns the speaker while it lasts; the tune counts on underneath, so it
+; comes back on the beat instead of starting over.
+
+; the metronome itself: half a period per interrupt, no registers
+PTICK:  COM SPKSH
+        MOV SPKSH, @#SPK
+        RTI
+
+; ---- SFXSET: R0 -> an effect script; it takes the speaker at once ----
+SFXSET: MOV R0, SFXP
+        CLR SFXF
+        RTS PC
+
+SROT:   MOV #SNROT, R0     ; rotate blip
+        BR SFXSET
+SLOCK:  MOV #SNLOCK, R0    ; lock thud
+        BR SFXSET
+SLINE:  MOV #SNLINE, R0    ; line-clear zap
+        BR SFXSET
+
+; ---- MUSGO / MUSOFF: the tune belongs to the waiting screen; it
+;      always starts from the top, but never over an effect ----
+MUSGO:  TST SFXP
+        BNE MGO9
+        TST MUSP
+        BNE MGO9
+        MOV #MTUNE, MUSP
+        CLR MUSF
+MGO9:   RTS PC
+MUSOFF: CLR MUSP
+        RTS PC
+
+; ---- SNDSTP: one frame of the script whose (pointer, timer) pair sits
+;      at R5; R1 = where to restart when it ends (0 = just stop).
+;      Returns R0 = the note to sound this frame. Clobbers R0-R2. ----
+SNDSTP: MOV (R5), R2       ; R2 -> the current (preset, frames) pair
+        BNE SST1
+        CLR R0             ; no script running
+        RTS PC
+SST1:   TST 2(R5)
+        BNE SST2
+        MOV 2(R2), 2(R5)   ; a fresh note: latch its length
+SST2:   MOV (R2), R0
+        DEC 2(R5)
+        BNE SST9
+        CLR R0             ; a note's last frame is silent: that gap is
+                           ; what separates two equal notes in a row
+        ADD #4, R2         ; and the script steps on
+        MOV R2, (R5)
+        CMP (R2), #177777
+        BNE SST9
+        MOV R1, (R5)       ; the end: da capo, or stop
+SST9:   RTS PC
+
+; ---- SNDFRM: one frame of sound, effect over tune ----
+SNDFRM: MOV #MUSP, R5
+        MOV #MTUNE, R1
+        JSR PC, SNDSTP     ; the tune keeps time even while muted
+        MOV R0, R3
+        MOV #SFXP, R5
+        CLR R1
+        JSR PC, SNDSTP
+        TST R0
+        BNE SFR9           ; an effect: it wins the speaker
+        MOV R3, R0
+SFR9:   ; fall through to PLAY
+
+; ---- PLAY: sound note R0 (a half-period preset), 0 for silence.
+;      Writing the buffer mid-note only changes the next reload, so a
+;      pitch change never resets the phase - no clicks, no 60 Hz hum. ----
+PLAY:   CMP R0, CURNT
+        BEQ PLY9
+        MOV R0, CURNT
+        BNE PLY1
+        CLR @#PCSR         ; stop the clock
+        CLR SPKSH
         CLR @#SPK
         RTS PC
-SROT:   MOV #150, R0       ; rotate blip
-        MOV #4, R1
-        BR TONE
-SLOCK:  MOV #400, R0       ; lock thud
-        MOV #6, R1
-        BR TONE
-SLINE:  MOV #100, R0       ; line-clear zap
-        MOV #30., R1
-        BR TONE
+PLY1:   MOV R0, @#PCSB
+        MOV #103, @#PCSR   ; IE + the 125 kHz crystal
+PLY9:   RTS PC
 
 ; ===================== display =====================
 ; ---- SHOWSC: six score digits, most significant first ----
@@ -602,11 +729,20 @@ RDROW:  .WORD 0
 RDCOL:  .WORD 0
 DASDIR: .WORD 0            ; -1 / 0 / +1: held horizontal direction
 DASCNT: .WORD 0
-PREVF:  .WORD 0            ; fire button last frame (rotate edge)
+PREVR:  .WORD 0            ; up button last frame (rotate edge)
 PREVD:  .WORD 0            ; down button last frame (hard-drop edge)
+PREVP:  .WORD 0            ; fire button last frame (pause edge)
+RUN:    .WORD 0            ; 0 = waiting with the tune, 1 = playing
 JOYS:   .WORD 0            ; joystick snapshot for this frame
 SEED:   .WORD 52525        ; LFSR state (nonzero)
 FCNT:   .WORD 0
+SFXP:   .WORD 0            ; the effect script now running
+SFXF:   .WORD 0            ; frames left in its note (must follow SFXP)
+MUSP:   .WORD 0            ; the tune, or 0 while it is off
+MUSF:   .WORD 0            ; (must follow MUSP)
+CURNT:  .WORD 0            ; the note sounding right now
+SPKSH:  .WORD 0            ; the metronome's speaker shadow
+INVS:   .WORD 0            ; frame handler re-entry latch
 SCORE:  .BYTE 0,0,0,0,0,0  ; six decimal digits, units first
 LINES:  .BYTE 0,0,0        ; three decimal digits, units first
         .EVEN
@@ -623,6 +759,62 @@ SCOREINC:.BYTE 0,4,0,0,0,0
         .BYTE 0,0,3,0,0,0
         .BYTE 0,0,2,1,0,0
         .EVEN
+
+; ---- effect scripts: (preset, frames), 177777 ends one ----
+SNROT:  .WORD 42., 3.      ; 1.5 kHz blip: the piece turns
+        .WORD 177777
+SNLOCK: .WORD 97., 4.      ; 640 Hz thud: it lands
+        .WORD 177777
+SNLINE: .WORD NE5, 3.      ; a line goes: three steps up
+        .WORD NC6, 3.
+        .WORD NE6, 5.
+        .WORD 177777
+
+; Korobeiniki, the whole sixteen bars. It plays while the game waits -
+; which is exactly how a PDP-11 came by it: Pajitnov wrote Tetris on an
+; Elektronika-60, and the tune has been chasing the machine ever since.
+; A note is (preset, frames): quarter = 24., eighth = 12., dotted
+; quarter = 36., half = 48. The last frame of each note is the release,
+; and that gap is what tells two equal notes apart.
+MTUNE:  .WORD NE5, 24.
+        .WORD NB4, 12.
+        .WORD NC5, 12.
+        .WORD ND5, 24.
+        .WORD NC5, 12.
+        .WORD NB4, 12.
+        .WORD NA4, 24.
+        .WORD NA4, 12.
+        .WORD NC5, 12.
+        .WORD NE5, 24.
+        .WORD ND5, 12.
+        .WORD NC5, 12.
+        .WORD NB4, 36.
+        .WORD NC5, 12.
+        .WORD ND5, 24.
+        .WORD NE5, 24.
+        .WORD NC5, 24.
+        .WORD NA4, 24.
+        .WORD NA4, 48.
+        .WORD ND5, 24.     ; the second strain
+        .WORD NF5, 12.
+        .WORD NA5, 12.
+        .WORD NG5, 12.
+        .WORD NF5, 12.
+        .WORD NE5, 36.
+        .WORD NC5, 12.
+        .WORD NE5, 24.
+        .WORD ND5, 12.
+        .WORD NC5, 12.
+        .WORD NB4, 24.
+        .WORD NB4, 12.
+        .WORD NC5, 12.
+        .WORD ND5, 24.
+        .WORD NE5, 24.
+        .WORD NC5, 24.
+        .WORD NA4, 24.
+        .WORD NA4, 48.
+        .WORD 0, 24.       ; a breath before da capo
+        .WORD 177777
 
 ; one cell, 24 rows x 3 bytes: filled, right/bottom grid gap, and a 3px
 ; hole punched dead centre. Per row: byte0 cols 0-7, byte1 8-15, byte2
